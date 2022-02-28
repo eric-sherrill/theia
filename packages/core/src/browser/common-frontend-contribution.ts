@@ -1,18 +1,18 @@
-/********************************************************************************
- * Copyright (C) 2017 TypeFox and others.
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
- *
- * This Source Code may also be made available under the following Secondary
- * Licenses when the conditions for such availability set forth in the Eclipse
- * Public License v. 2.0 are satisfied: GNU General Public License, version 2
- * with the GNU Classpath Exception which is available at
- * https://www.gnu.org/software/classpath/license.html.
- *
- * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
- ********************************************************************************/
+// *****************************************************************************
+// Copyright (C) 2017 TypeFox and others.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0.
+//
+// This Source Code may also be made available under the following Secondary
+// Licenses when the conditions for such availability set forth in the Eclipse
+// Public License v. 2.0 are satisfied: GNU General Public License, version 2
+// with the GNU Classpath Exception which is available at
+// https://www.gnu.org/software/classpath/license.html.
+//
+// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+// *****************************************************************************
 
 /* eslint-disable max-len, @typescript-eslint/indent */
 
@@ -1740,6 +1740,33 @@ export class CommonFrontendContribution implements FrontendApplicationContributi
                     dark: 'input.border', light: 'input.border', hc: 'input.border'
                 }, description: 'Settings editor number input box border.'
             },
+            {
+                id: 'settings.focusedRowBackground', defaults: {
+                    dark: Color.transparent('#808080', 0.14),
+                    light: Color.transparent('#808080', 0.03),
+                    hc: undefined
+                }, description: 'The background color of a settings row when focused.'
+            },
+            {
+                id: 'settings.rowHoverBackground', defaults: {
+                    dark: Color.transparent('#808080', 0.07),
+                    light: Color.transparent('#808080', 0.05),
+                    hc: undefined
+                }, description: 'The background color of a settings row when hovered.'
+            },
+            {
+                id: 'settings.focusedRowBorder', defaults: {
+                    dark: Color.rgba(255, 255, 255, 0.12),
+                    light: Color.rgba(0, 0, 0, 0.12),
+                    hc: 'focusBorder'
+                }, description: "The color of the row's top and bottom border when the row is focused."
+            },
+            // Toolbar Action colors should be aligned with https://code.visualstudio.com/api/references/theme-color#action-colors
+            {
+                id: 'toolbar.hoverBackground', defaults: {
+                    dark: '#5a5d5e50', light: '#b8b8b850', hc: undefined
+                }, description: 'Toolbar background when hovering over actions using the mouse.'
+            },
 
             // Theia Variable colors
             {
@@ -2021,7 +2048,23 @@ export class CommonFrontendContribution implements FrontendApplicationContributi
                     hc: 'editorWidget.background',
                 },
                 description: 'Background color of breadcrumb item picker'
-            }
+            },
+            {
+                id: 'mainToolbar.background',
+                defaults: {
+                    dark: Color.lighten('activityBar.background', 0.1),
+                    light: Color.darken('activityBar.background', 0.1),
+                    hc: Color.lighten('activityBar.background', 0.1),
+                },
+                description: 'Background color of shell\'s global toolbar'
+            },
+            {
+                id: 'mainToolbar.foreground', defaults: {
+                    dark: Color.darken('activityBar.foreground', 0.1),
+                    light: Color.lighten('activityBar.foreground', 0.1),
+                    hc: Color.lighten('activityBar.foreground', 0.1),
+                }, description: 'Foreground color of active toolbar item',
+            },
         );
     }
 }

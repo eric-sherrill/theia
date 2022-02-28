@@ -1,18 +1,18 @@
-/********************************************************************************
- * Copyright (C) 2018 TypeFox and others.
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
- *
- * This Source Code may also be made available under the following Secondary
- * Licenses when the conditions for such availability set forth in the Eclipse
- * Public License v. 2.0 are satisfied: GNU General Public License, version 2
- * with the GNU Classpath Exception which is available at
- * https://www.gnu.org/software/classpath/license.html.
- *
- * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
- ********************************************************************************/
+// *****************************************************************************
+// Copyright (C) 2018 TypeFox and others.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0.
+//
+// This Source Code may also be made available under the following Secondary
+// Licenses when the conditions for such availability set forth in the Eclipse
+// Public License v. 2.0 are satisfied: GNU General Public License, version 2
+// with the GNU Classpath Exception which is available at
+// https://www.gnu.org/software/classpath/license.html.
+//
+// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+// *****************************************************************************
 
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import {
@@ -125,7 +125,7 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     protected readonly toDisposeOnActiveEditorChanged = new DisposableCollection();
 
     // The default root name to add external search results in the case that a workspace is opened.
-    protected readonly defaultRootName = nls.localize('theia/searchResultsView/searchFolderMatch.other.label', 'Other files');
+    protected readonly defaultRootName = nls.localizeByDefault('Other files');
     protected forceVisibleRootNode = false;
 
     protected appliedDecorations = new Map<string, string[]>();
@@ -153,9 +153,9 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     @inject(FileService) protected readonly fileService: FileService;
 
     constructor(
-        @inject(TreeProps) readonly props: TreeProps,
-        @inject(TreeModel) readonly model: TreeModel,
-        @inject(ContextMenuRenderer) protected readonly contextMenuRenderer: ContextMenuRenderer
+        @inject(TreeProps) props: TreeProps,
+        @inject(TreeModel) model: TreeModel,
+        @inject(ContextMenuRenderer) contextMenuRenderer: ContextMenuRenderer
     ) {
         super(props, model, contextMenuRenderer);
 
@@ -178,7 +178,7 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     }
 
     @postConstruct()
-    protected init(): void {
+    protected override init(): void {
         super.init();
         this.addClass('resultContainer');
 
@@ -612,7 +612,7 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
         }
     }
 
-    protected handleUp(event: KeyboardEvent): void {
+    protected override handleUp(event: KeyboardEvent): void {
         if (!this.model.getPrevSelectableNode(this.model.selectedNodes[0])) {
             this.focusInputEmitter.fire(true);
         } else {
@@ -717,7 +717,7 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
         };
     }
 
-    protected renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
+    protected override renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
         if (SearchInWorkspaceRootFolderNode.is(node)) {
             return this.renderRootFolderNode(node);
         } else if (SearchInWorkspaceFileNode.is(node)) {
@@ -728,7 +728,7 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
         return '';
     }
 
-    protected renderTailDecorations(node: TreeNode, props: NodeProps): React.ReactNode {
+    protected override renderTailDecorations(node: TreeNode, props: NodeProps): React.ReactNode {
         return <div className='result-node-buttons'>
             {this._showReplaceButtons && this.renderReplaceButton(node)}
             {this.renderRemoveButton(node)}

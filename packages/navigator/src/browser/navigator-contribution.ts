@@ -1,18 +1,18 @@
-/********************************************************************************
- * Copyright (C) 2017-2018 TypeFox and others.
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
- *
- * This Source Code may also be made available under the following Secondary
- * Licenses when the conditions for such availability set forth in the Eclipse
- * Public License v. 2.0 are satisfied: GNU General Public License, version 2
- * with the GNU Classpath Exception which is available at
- * https://www.gnu.org/software/classpath/license.html.
- *
- * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
- ********************************************************************************/
+// *****************************************************************************
+// Copyright (C) 2017-2018 TypeFox and others.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0.
+//
+// This Source Code may also be made available under the following Secondary
+// Licenses when the conditions for such availability set forth in the Eclipse
+// Public License v. 2.0 are satisfied: GNU General Public License, version 2
+// with the GNU Classpath Exception which is available at
+// https://www.gnu.org/software/classpath/license.html.
+//
+// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+// *****************************************************************************
 
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { AbstractViewContribution } from '@theia/core/lib/browser/shell/view-contribution';
@@ -266,7 +266,7 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
         await this.openView();
     }
 
-    registerCommands(registry: CommandRegistry): void {
+    override registerCommands(registry: CommandRegistry): void {
         super.registerCommands(registry);
         registry.registerCommand(FileNavigatorCommands.FOCUS, {
             execute: () => this.openView({ activate: true })
@@ -399,7 +399,7 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
         return false;
     }
 
-    registerMenus(registry: MenuModelRegistry): void {
+    override registerMenus(registry: MenuModelRegistry): void {
         super.registerMenus(registry);
         registry.registerMenuAction(SHELL_TABBAR_CONTEXT_REVEAL, {
             commandId: FileNavigatorCommands.REVEAL_IN_NAVIGATOR.id,
@@ -533,7 +533,7 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
         });
     }
 
-    registerKeybindings(registry: KeybindingRegistry): void {
+    override registerKeybindings(registry: KeybindingRegistry): void {
         super.registerKeybindings(registry);
         registry.registerKeybinding({
             command: FileNavigatorCommands.REVEAL_IN_NAVIGATOR.id,

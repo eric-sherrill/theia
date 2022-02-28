@@ -1,18 +1,18 @@
-/********************************************************************************
- * Copyright (C) 2018 Red Hat, Inc. and others.
- *
- * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0.
- *
- * This Source Code may also be made available under the following Secondary
- * Licenses when the conditions for such availability set forth in the Eclipse
- * Public License v. 2.0 are satisfied: GNU General Public License, version 2
- * with the GNU Classpath Exception which is available at
- * https://www.gnu.org/software/classpath/license.html.
- *
- * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
- ********************************************************************************/
+// *****************************************************************************
+// Copyright (C) 2018 Red Hat, Inc. and others.
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0.
+//
+// This Source Code may also be made available under the following Secondary
+// Licenses when the conditions for such availability set forth in the Eclipse
+// Public License v. 2.0 are satisfied: GNU General Public License, version 2
+// with the GNU Classpath Exception which is available at
+// https://www.gnu.org/software/classpath/license.html.
+//
+// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+// *****************************************************************************
 
 // This file is heavily inspired by VSCode 'vscode.d.ts' - https://github.com/Microsoft/vscode/blob/master/src/vs/vscode.d.ts
 // 'vscode.d.ts' copyright:
@@ -3791,6 +3791,12 @@ export module '@theia/plugin' {
          * from the user's workspace.
          */
         readonly backupId?: string;
+        /**
+         * If the URI is an untitled file, this will be populated with the byte data of that file.
+         *
+         * If this is provided, your extension should utilize this byte data rather than executing fs APIs on the URI passed in.
+         */
+        readonly untitledDocumentData?: Uint8Array;
     }
 
     /**
@@ -4553,13 +4559,23 @@ export module '@theia/plugin' {
         export function setStatusBarMessage(text: string, hideWhenDone: PromiseLike<any>): Disposable;
 
         /**
-         * Creates a status bar [item](#StatusBarItem).
+         * Creates a status bar {@link StatusBarItem item}.
          *
          * @param alignment The alignment of the item.
          * @param priority The priority of the item. Higher values mean the item should be shown more to the left.
          * @return A new status bar item.
          */
         export function createStatusBarItem(alignment?: StatusBarAlignment, priority?: number): StatusBarItem;
+
+        /**
+         * Creates a status bar {@link StatusBarItem item}.
+         *
+         * @param id The unique identifier of the item.
+         * @param alignment The alignment of the item.
+         * @param priority The priority of the item. Higher values mean the item should be shown more to the left.
+         * @return A new status bar item.
+         */
+        export function createStatusBarItem(id: string, alignment?: StatusBarAlignment, priority?: number): StatusBarItem;
 
         /**
          * Create a new [output channel](#OutputChannel) with the given name.
@@ -7791,6 +7807,16 @@ export module '@theia/plugin' {
         kind?: CodeActionKind;
 
         /**
+         * Marks that the code action cannot currently be applied.
+         */
+        disabled?: { reason: string };
+
+        /**
+         * Marks this as a preferred action.
+         */
+        isPreferred?: boolean;
+
+        /**
          * Creates a new code action.
          *
          * A code action must have at least a [title](#CodeAction.title) and [edits](#CodeAction.edit)
@@ -7826,6 +7852,22 @@ export module '@theia/plugin' {
             context: CodeActionContext,
             token: CancellationToken | undefined
         ): ProviderResult<(Command | CodeAction)[]>;
+
+        /**
+         * Given a code action fill in its `edit`-property. Changes to
+         * all other properties, like title, are ignored. A code action that has an edit
+         * will not be resolved.
+         *
+         * *Note* that a code action provider that returns commands, not code actions, cannot successfully
+         * implement this function. Returning commands is deprecated and instead code actions should be
+         * returned.
+         *
+         * @param codeAction A code action.
+         * @param token A cancellation token.
+         * @return The resolved code action or a thenable that resolves to such. It is OK to return the given
+         * `item`. When no result is returned, the given `item` will be used.
+         */
+        resolveCodeAction?(codeAction: CodeAction, token: CancellationToken | undefined): ProviderResult<CodeAction>;
     }
 
     /**
@@ -7839,6 +7881,13 @@ export module '@theia/plugin' {
          * may list our every specific kind they provide, such as `CodeActionKind.Refactor.Extract.append('function`)`
          */
         readonly providedCodeActionKinds?: ReadonlyArray<CodeActionKind>;
+
+        /**
+         * Documentation from the provider is shown in the code actions menu
+         *
+         * At most one documentation entry will be shown per provider.
+         */
+        documentation?: ReadonlyArray<{ command: Command, kind: CodeActionKind }>
     }
 
     /**
@@ -7993,7 +8042,7 @@ export module '@theia/plugin' {
         /**
          * String value of the kind, e.g. `"refactor.extract.function"`.
          */
-        readonly value?: string;
+        readonly value: string;
 
         /**
          * Create a new kind by appending a more specific selector to the current kind.
@@ -11184,6 +11233,28 @@ export module '@theia/plugin' {
          * Defaults to false.
          */
         clearSessionPreference?: boolean;
+
+        /**
+         * Whether we should attempt to reauthenticate even if there is already a session available.
+         *
+         * If true, a modal dialog will be shown asking the user to sign in again. This is mostly used for scenarios
+         * where the token needs to be re minted because it has lost some authorization.
+         *
+         * Defaults to false.
+         */
+        forceNewSession?: boolean | { detail: string };
+
+        /**
+         * Whether we should show the indication to sign in in the Accounts menu.
+         *
+         * If false, the user will be shown a badge on the Accounts menu with an option to sign in for the extension.
+         * If true, no indication will be shown.
+         *
+         * Defaults to false.
+         *
+         * Note: you cannot use this option with any other options that prompt the user like {@link createIfNone}.
+         */
+        silent?: boolean;
     }
 
     /**
@@ -11212,6 +11283,83 @@ export module '@theia/plugin' {
     }
 
     /**
+     * Options for creating an {@link AuthenticationProvider}.
+     */
+    export interface AuthenticationProviderOptions {
+        /**
+         * Whether it is possible to be signed into multiple accounts at once with this provider.
+         * If not specified, will default to false.
+         */
+        readonly supportsMultipleAccounts?: boolean;
+    }
+
+    /**
+     * An {@link Event} which fires when an {@link AuthenticationSession} is added, removed, or changed.
+     */
+    export interface AuthenticationProviderAuthenticationSessionsChangeEvent {
+        /**
+         * The {@link AuthenticationSession AuthenticationSessions} of the {@link AuthenticationProvider} that have been added.
+         */
+        readonly added: readonly AuthenticationSession[] | undefined;
+
+        /**
+         * The {@link AuthenticationSession AuthenticationSessions} of the {@link AuthenticationProvider} that have been removed.
+         */
+        readonly removed: readonly AuthenticationSession[] | undefined;
+
+        /**
+         * The {@link AuthenticationSession AuthenticationSessions} of the {@link AuthenticationProvider} that have been changed.
+         * A session changes when its data excluding the id are updated. An example of this is a session refresh that results in a new
+         * access token being set for the session.
+         */
+        readonly changed: readonly AuthenticationSession[] | undefined;
+    }
+
+    /**
+     * A provider for performing authentication to a service.
+     */
+    export interface AuthenticationProvider {
+        /**
+         * An {@link Event} which fires when the array of sessions has changed, or data
+         * within a session has changed.
+         */
+        readonly onDidChangeSessions: Event<AuthenticationProviderAuthenticationSessionsChangeEvent>;
+
+        /**
+         * Get a list of sessions.
+         * @param scopes An optional list of scopes. If provided, the sessions returned should match
+         * these permissions, otherwise all sessions should be returned.
+         * @returns A promise that resolves to an array of authentication sessions.
+         */
+        getSessions(scopes?: readonly string[]): Thenable<readonly AuthenticationSession[]>;
+
+        /**
+         * Prompts a user to login.
+         *
+         * If login is successful, the onDidChangeSessions event should be fired.
+         *
+         * If login fails, a rejected promise should be returned.
+         *
+         * If the provider has specified that it does not support multiple accounts,
+         * then this should never be called if there is already an existing session matching these
+         * scopes.
+         * @param scopes A list of scopes, permissions, that the new session should be created with.
+         * @returns A promise that resolves to an authentication session.
+         */
+        createSession(scopes: readonly string[]): Thenable<AuthenticationSession>;
+
+        /**
+         * Removes the session corresponding to session id.
+         *
+         * If the removal is successful, the onDidChangeSessions event should be fired.
+         *
+         * If a session cannot be removed, the provider should reject with an error message.
+         * @param sessionId The id of the session to remove.
+         */
+        removeSession(sessionId: string): Thenable<void>;
+    }
+
+    /**
      * Namespace for authentication.
      */
     export namespace authentication {
@@ -11236,6 +11384,21 @@ export module '@theia/plugin' {
          * the extension. If there are multiple sessions with the same scopes, the user will be shown a
          * quickpick to select which account they would like to use.
          *
+         * Currently, there are only two authentication providers that are contributed from built in extensions
+         * to the editor that implement GitHub and Microsoft authentication: their providerId's are 'github' and 'microsoft'.
+         * @param providerId The id of the provider to use
+         * @param scopes A list of scopes representing the permissions requested. These are dependent on the authentication provider
+         * @param options The {@link AuthenticationGetSessionOptions} to use
+         * @returns A thenable that resolves to an authentication session
+         */
+        export function getSession(providerId: string, scopes: readonly string[], options: AuthenticationGetSessionOptions & { forceNewSession: true | { detail: string } }): Thenable<AuthenticationSession>;
+
+        /**
+         * Get an authentication session matching the desired scopes. Rejects if a provider with providerId is not
+         * registered, or if the user does not consent to sharing authentication information with
+         * the extension. If there are multiple sessions with the same scopes, the user will be shown a
+         * quickpick to select which account they would like to use.
+         *
          * @param providerId The id of the provider to use
          * @param scopes A list of scopes representing the permissions requested. These are dependent on the authentication provider
          * @param options The [getSessionOptions](#GetSessionOptions) to use
@@ -11248,5 +11411,25 @@ export module '@theia/plugin' {
          * been added, removed, or changed.
          */
         export const onDidChangeSessions: Event<AuthenticationSessionsChangeEvent>;
+
+        /**
+         * Register an authentication provider.
+         *
+         * There can only be one provider per id and an error is being thrown when an id
+         * has already been used by another provider. Ids are case-sensitive.
+         *
+         * @param id The unique identifier of the provider.
+         * @param label The human-readable name of the provider.
+         * @param provider The authentication provider provider.
+         * @params options Additional options for the provider.
+         * @return A {@link Disposable} that unregisters this provider when being disposed.
+         */
+        export function registerAuthenticationProvider(id: string, label: string, provider: AuthenticationProvider, options?: AuthenticationProviderOptions): Disposable;
+
+        /**
+         * @deprecated Use {@link getSession()} {@link AuthenticationGetSessionOptions.silent} instead.
+         */
+        export function hasSession(providerId: string, scopes: readonly string[]): Thenable<boolean>;
+
     }
 }
