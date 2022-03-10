@@ -6953,6 +6953,16 @@ export module '@theia/plugin' {
     }
 
     /**
+     * Metadata about a {@link DocumentSymbolProvider}.
+     */
+    export interface DocumentSymbolProviderMetadata {
+        /**
+         * A human-readable string that is shown when multiple outline trees show for one document.
+         */
+        label?: string;
+    }
+
+    /**
      * Represents a color in RGBA space.
      */
     export class Color {
@@ -8974,9 +8984,11 @@ export module '@theia/plugin' {
          *
          * @param selector A selector that defines the documents this provider is applicable to.
          * @param provider A document symbol provider.
-         * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+         * @param metadata Optional metadata about the provider.
+         * @return A {@link Disposable disposable} that unregisters this provider when being disposed.
          */
-        export function registerDocumentSymbolProvider(selector: DocumentSelector, provider: DocumentSymbolProvider): Disposable;
+        export function registerDocumentSymbolProvider(selector: DocumentSelector, provider: DocumentSymbolProvider,
+            metadata?: DocumentSymbolProviderMetadata): Disposable;
 
         /**
          * Register a color provider.
@@ -11376,7 +11388,7 @@ export module '@theia/plugin' {
          * @param options The [getSessionOptions](#GetSessionOptions) to use
          * @returns A thenable that resolves to an authentication session
          */
-        export function getSession(providerId: string, scopes: string[], options: AuthenticationGetSessionOptions & { createIfNone: true }): Thenable<AuthenticationSession>;
+        export function getSession(providerId: string, scopes: readonly string[], options: AuthenticationGetSessionOptions & { createIfNone: true }): Thenable<AuthenticationSession>;
 
         /**
          * Get an authentication session matching the desired scopes. Rejects if a provider with providerId is not
@@ -11404,7 +11416,7 @@ export module '@theia/plugin' {
          * @param options The [getSessionOptions](#GetSessionOptions) to use
          * @returns A thenable that resolves to an authentication session if available, or undefined if there are no sessions
          */
-        export function getSession(providerId: string, scopes: string[], options?: AuthenticationGetSessionOptions): Thenable<AuthenticationSession | undefined>;
+        export function getSession(providerId: string, scopes: readonly string[], options?: AuthenticationGetSessionOptions): Thenable<AuthenticationSession | undefined>;
 
         /**
          * An [event](#Event) which fires when the authentication sessions of an authentication provider have
