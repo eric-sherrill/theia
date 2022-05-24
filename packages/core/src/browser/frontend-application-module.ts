@@ -46,7 +46,6 @@ import {
     SidebarMenuWidget, SidebarTopMenuWidgetFactory,
     SplitPositionHandler, DockPanelRendererFactory, ApplicationShellLayoutMigration, ApplicationShellLayoutMigrationError, SidebarBottomMenuWidgetFactory
 } from './shell';
-import { StatusBar, StatusBarImpl } from './status-bar/status-bar';
 import { LabelParser } from './label-parser';
 import { LabelProvider, LabelProviderContribution, DefaultUriLabelProviderContribution } from './label-provider';
 import { PreferenceService } from './preferences';
@@ -61,7 +60,7 @@ import { EnvVariablesServer, envVariablesPath, EnvVariable } from './../common/e
 import { FrontendApplicationStateService } from './frontend-application-state';
 import { JsonSchemaStore, JsonSchemaContribution, DefaultJsonSchemaContribution } from './json-schema-store';
 import { TabBarToolbarRegistry, TabBarToolbarContribution, TabBarToolbarFactory, TabBarToolbar } from './shell/tab-bar-toolbar';
-import { bindCorePreferences } from './core-preferences';
+import { bindCorePreferences, CorePreferences } from './core-preferences';
 import { ContextKeyService, ContextKeyServiceDummyImpl } from './context-key-service';
 import { ResourceContextKey } from './resource-context-key';
 import { KeyboardLayoutService } from './keyboard/keyboard-layout-service';
@@ -121,12 +120,16 @@ import { RendererHost } from './widgets';
 import { TooltipService, TooltipServiceImpl } from './tooltip-service';
 import { bindFrontendStopwatch, bindBackendStopwatch } from './performance';
 import { SaveResourceService } from './save-resource-service';
+import { UserWorkingDirectoryProvider } from './user-working-directory-provider';
+import { TheiaDockPanel } from './shell/theia-dock-panel';
+import { bindStatusBar } from './status-bar';
+import { MarkdownRenderer, MarkdownRendererFactory, MarkdownRendererImpl } from './markdown-rendering/markdown-renderer';
 
 export { bindResourceProvider, bindMessageService, bindPreferenceService };
 
 ColorApplicationContribution.initBackground();
 
-export const frontendApplicationModule = new ContainerModule((bind, unbind, isBound, rebind) => {
+export const frontendApplicationModule = new ContainerModule((bind, _unbind, _isBound, _rebind) => {
     bind(NoneIconTheme).toSelf().inSingletonScope();
     bind(LabelProviderContribution).toService(NoneIconTheme);
     bind(IconThemeService).toSelf().inSingletonScope();
@@ -174,6 +177,10 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
         const selectionService = container.get(SelectionService);
         const commandService = container.get<CommandService>(CommandService);
         return new TabBarRenderer(contextMenuRenderer, tabBarDecoratorService, iconThemeService, selectionService, commandService);
+    });
+    bind(TheiaDockPanel.Factory).toFactory(({ container }) => options => {
+        const corePreferences = container.get<CorePreferences>(CorePreferences);
+        return new TheiaDockPanel(options, corePreferences);
     });
 
     bindContributionProvider(bind, TabBarDecorator);
@@ -266,6 +273,9 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
         return quickPickService;
     });
 
+    bind(MarkdownRenderer).to(MarkdownRendererImpl).inSingletonScope();
+    bind(MarkdownRendererFactory).toFactory(({ container }) => () => container.get(MarkdownRenderer));
+
     bindContributionProvider(bind, QuickAccessContribution);
     bind(QuickInputFrontendContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(QuickInputFrontendContribution);
@@ -273,8 +283,7 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bind(LocalStorageService).toSelf().inSingletonScope();
     bind(StorageService).toService(LocalStorageService);
 
-    bind(StatusBarImpl).toSelf().inSingletonScope();
-    bind(StatusBar).toService(StatusBarImpl);
+    bindStatusBar(bind);
     bind(LabelParser).toSelf().inSingletonScope();
 
     bindContributionProvider(bind, LabelProviderContribution);
@@ -398,4 +407,5 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bindBackendStopwatch(bind);
 
     bind(SaveResourceService).toSelf().inSingletonScope();
+    bind(UserWorkingDirectoryProvider).toSelf().inSingletonScope();
 });

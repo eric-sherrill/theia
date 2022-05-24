@@ -21,15 +21,18 @@ import { EditorWidget, EditorOpenerOptions, EditorManager, CustomEditorWidget } 
 import { MonacoEditor } from './monaco-editor';
 import { MonacoToProtocolConverter } from './monaco-to-protocol-converter';
 import { MonacoEditorModel } from './monaco-editor-model';
+import { IResourceEditorInput, ITextResourceEditorInput } from '@theia/monaco-editor-core/esm/vs/platform/editor/common/editor';
+import { StandaloneServices } from '@theia/monaco-editor-core/esm/vs/editor/standalone/browser/standaloneServices';
+import { IStandaloneThemeService } from '@theia/monaco-editor-core/esm/vs/editor/standalone/common/standaloneTheme';
+import { StandaloneCodeEditorService } from '@theia/monaco-editor-core/esm/vs/editor/standalone/browser/standaloneCodeEditorService';
+import { StandaloneCodeEditor } from '@theia/monaco-editor-core/esm/vs/editor/standalone/browser/standaloneCodeEditor';
+import { ICodeEditor } from '@theia/monaco-editor-core/esm/vs/editor/browser/editorBrowser';
+import { ContextKeyService as VSCodeContextKeyService } from '@theia/monaco-editor-core/esm/vs/platform/contextkey/browser/contextKeyService';
 
-import ICodeEditor = monaco.editor.ICodeEditor;
-import CommonCodeEditor = monaco.editor.CommonCodeEditor;
-import IResourceEditorInput = monaco.editor.IResourceEditorInput;
-
-decorate(injectable(), monaco.services.CodeEditorServiceImpl);
+decorate(injectable(), StandaloneCodeEditorService);
 
 @injectable()
-export class MonacoEditorService extends monaco.services.CodeEditorServiceImpl {
+export class MonacoEditorService extends StandaloneCodeEditorService {
 
     public static readonly ENABLE_PREVIEW_PREFERENCE: string = 'editor.enablePreview';
 
@@ -48,14 +51,14 @@ export class MonacoEditorService extends monaco.services.CodeEditorServiceImpl {
     @inject(PreferenceService)
     protected readonly preferencesService: PreferenceService;
 
-    constructor() {
-        super(undefined, monaco.services.StaticServices.standaloneThemeService.get());
+    constructor(@inject(VSCodeContextKeyService) contextKeyService: VSCodeContextKeyService) {
+        super(contextKeyService, StandaloneServices.get(IStandaloneThemeService));
     }
 
     /**
      * Monaco active editor is either focused or last focused editor.
      */
-    override getActiveCodeEditor(): monaco.editor.IStandaloneCodeEditor | undefined {
+    override getActiveCodeEditor(): StandaloneCodeEditor | null {
         let editor = MonacoEditor.getCurrent(this.editors);
         if (!editor && CustomEditorWidget.is(this.shell.activeWidget)) {
             const model = this.shell.activeWidget.modelRef.object;
@@ -63,18 +66,25 @@ export class MonacoEditorService extends monaco.services.CodeEditorServiceImpl {
                 editor = MonacoEditor.findByDocument(this.editors, model.editorTextModel)[0];
             }
         }
-        return editor && editor.getControl();
+        const candidate = editor?.getControl();
+        // Since we extend a private super class, we have to check that the thing that matches the public interface also matches the private expectations the superclass.
+        /* eslint-disable-next-line no-null/no-null */
+        return candidate instanceof StandaloneCodeEditor ? candidate : null;
     }
 
-    override async openCodeEditor(input: IResourceEditorInput, source?: ICodeEditor, sideBySide?: boolean): Promise<CommonCodeEditor | undefined> {
+    override async openCodeEditor(input: IResourceEditorInput, source: ICodeEditor | null, sideBySide?: boolean): Promise<ICodeEditor | null> {
         const uri = new URI(input.resource.toString());
         const openerOptions = this.createEditorOpenerOptions(input, source, sideBySide);
         const widget = await open(this.openerService, uri, openerOptions);
         const editorWidget = await this.findEditorWidgetByUri(widget, uri.toString());
         if (editorWidget && editorWidget.editor instanceof MonacoEditor) {
-            return editorWidget.editor.getControl();
+            const candidate = editorWidget.editor.getControl();
+            // Since we extend a private super class, we have to check that the thing that matches the public interface also matches the private expectations the superclass.
+            // eslint-disable-next-line no-null/no-null
+            return candidate instanceof StandaloneCodeEditor ? candidate : null;
         }
-        return undefined;
+        // eslint-disable-next-line no-null/no-null
+        return null;
     }
 
     protected async findEditorWidgetByUri(widget: object | undefined, uriAsString: string): Promise<EditorWidget | undefined> {
@@ -95,13 +105,20 @@ export class MonacoEditorService extends monaco.services.CodeEditorServiceImpl {
         return undefined;
     }
 
-    protected createEditorOpenerOptions(input: IResourceEditorInput, source?: ICodeEditor, sideBySide?: boolean): EditorOpenerOptions {
+    protected createEditorOpenerOptions(input: IResourceEditorInput | ITextResourceEditorInput, source: ICodeEditor | null, sideBySide?: boolean): EditorOpenerOptions {
         const mode = this.getEditorOpenMode(input);
-        const selection = input.options && this.m2p.asRange(input.options.selection);
         const widgetOptions = this.getWidgetOptions(source, sideBySide);
+        const selection = this.getSelection(input);
         const preview = !!this.preferencesService.get<boolean>(MonacoEditorService.ENABLE_PREVIEW_PREFERENCE, false);
-        return { mode, selection, widgetOptions, preview };
+        return { mode, widgetOptions, preview, selection };
     }
+
+    protected getSelection(input: IResourceEditorInput | ITextResourceEditorInput): EditorOpenerOptions['selection'] {
+        if ('options' in input && input.options && 'selection' in input.options) {
+            return this.m2p.asRange(input.options.selection);
+        }
+    }
+
     protected getEditorOpenMode(input: IResourceEditorInput): WidgetOpenMode {
         const options = {
             preserveFocus: false,
@@ -113,7 +130,8 @@ export class MonacoEditorService extends monaco.services.CodeEditorServiceImpl {
         }
         return options.revealIfVisible ? 'activate' : 'open';
     }
-    protected getWidgetOptions(source?: ICodeEditor, sideBySide?: boolean): ApplicationShell.WidgetOptions | undefined {
+
+    protected getWidgetOptions(source: ICodeEditor | null, sideBySide?: boolean): ApplicationShell.WidgetOptions | undefined {
         const ref = MonacoEditor.getWidgetFor(this.editors, source);
         if (!ref) {
             return undefined;

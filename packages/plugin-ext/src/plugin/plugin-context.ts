@@ -124,6 +124,7 @@ import {
     FileSystemError,
     CommentThreadCollapsibleState,
     QuickInputButtons,
+    QuickPickItemKind,
     CommentMode,
     CallHierarchyItem,
     CallHierarchyIncomingCall,
@@ -139,7 +140,10 @@ import {
     SourceControlInputBoxValidationType,
     URI,
     FileDecoration,
-    ExtensionMode
+    ExtensionMode,
+    LinkedEditingRanges,
+    LanguageStatusSeverity,
+    TextDocumentChangeReason
 } from './types-impl';
 import { AuthenticationExtImpl } from './authentication-ext';
 import { SymbolKind } from '../common/plugin-api-rpc-model';
@@ -154,7 +158,7 @@ import { LanguagesExtImpl } from './languages';
 import { fromDocumentSelector, pluginToPluginInfo, fromGlobPattern } from './type-converters';
 import { DialogsExtImpl } from './dialogs';
 import { NotificationExtImpl } from './notification';
-import { score } from '@theia/callhierarchy/lib/common/language-selector';
+import { score } from '@theia/editor/lib/common/language-selector';
 import { MarkdownString } from './markdown-string';
 import { TreeViewsExtImpl } from './tree/tree-views';
 import { ConnectionImpl } from '../common/connection';
@@ -778,6 +782,12 @@ export function createAPIFactory(
             },
             registerCallHierarchyProvider(selector: theia.DocumentSelector, provider: theia.CallHierarchyProvider): theia.Disposable {
                 return languagesExt.registerCallHierarchyProvider(selector, provider);
+            },
+            registerLinkedEditingRangeProvider(selector: theia.DocumentSelector, provider: theia.LinkedEditingRangeProvider): theia.Disposable {
+                return languagesExt.registerLinkedEditingRangeProvider(selector, provider);
+            },
+            createLanguageStatusItem(id: string, selector: theia.DocumentSelector): theia.LanguageStatusItem {
+                return languagesExt.createLanguageStatusItem(plugin, id, selector);
             }
         };
 
@@ -853,10 +863,10 @@ export function createAPIFactory(
             stopDebugging(session?: theia.DebugSession): Thenable<void> {
                 return debugExt.stopDebugging(session);
             },
-            addBreakpoints(breakpoints: theia.Breakpoint[]): void {
+            addBreakpoints(breakpoints: readonly theia.Breakpoint[]): void {
                 debugExt.addBreakpoints(breakpoints);
             },
-            removeBreakpoints(breakpoints: theia.Breakpoint[]): void {
+            removeBreakpoints(breakpoints: readonly theia.Breakpoint[]): void {
                 debugExt.removeBreakpoints(breakpoints);
             }
         };
@@ -954,6 +964,7 @@ export function createAPIFactory(
             DebugConsoleMode,
             DiagnosticSeverity,
             DiagnosticRelatedInformation,
+            LanguageStatusSeverity,
             Location,
             LogLevel,
             DiagnosticTag,
@@ -965,6 +976,7 @@ export function createAPIFactory(
             ProgressOptions,
             Progress,
             ParameterInformation,
+            QuickPickItemKind,
             SignatureInformation,
             SignatureHelp,
             SignatureHelpTriggerKind,
@@ -1029,11 +1041,13 @@ export function createAPIFactory(
             SemanticTokens,
             SemanticTokensEdits,
             SemanticTokensEdit,
+            TextDocumentChangeReason,
             ColorThemeKind,
             SourceControlInputBoxValidationType,
             FileDecoration,
             CancellationError,
-            ExtensionMode
+            ExtensionMode,
+            LinkedEditingRanges
         };
     };
 }

@@ -35,6 +35,7 @@ import {
 } from '@theia/core/lib/common';
 import { CommentsContextKeyService } from './comments-context-key-service';
 import { RefObject } from '@theia/core/shared/react';
+import * as monaco from '@theia/monaco-editor-core';
 
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
@@ -83,6 +84,12 @@ export class CommentThreadWidget extends BaseWidget {
         this.contextKeyService.commentIsEmpty.set(true);
         this.toDispose.push(this.zoneWidget.editor.onMouseDown(e => this.onEditorMouseDown(e)));
         this.toDispose.push(this.contextKeyService.onDidChange(() => {
+            const commentForm = this.commentFormRef.current;
+            if (commentForm) {
+                commentForm.update();
+            }
+        }));
+        this.toDispose.push(this._commentThread.onDidChangeCanReply(_canReply => {
             const commentForm = this.commentFormRef.current;
             if (commentForm) {
                 commentForm.update();
@@ -380,7 +387,7 @@ export class CommentForm<P extends CommentForm.Props = CommentForm.Props> extend
     override render(): React.ReactNode {
         const { commands, commentThread, contextKeyService } = this.props;
         const hasExistingComments = commentThread.comments && commentThread.comments.length > 0;
-        return <div className={'comment-form' + (this.state.expanded || commentThread.comments && commentThread.comments.length === 0 ? ' expand' : '')}>
+        return commentThread.canReply ? <div className={'comment-form' + (this.state.expanded || commentThread.comments && commentThread.comments.length === 0 ? ' expand' : '')}>
             <div className={'theia-comments-input-message-container'}>
                 <textarea className={'theia-comments-input-message theia-input'}
                     spellCheck={false}
@@ -408,7 +415,7 @@ export class CommentForm<P extends CommentForm.Props = CommentForm.Props> extend
                 clearInput={this.clearInput}
             />
             <button className={'review-thread-reply-button'} title={'Reply...'} onClick={this.expand}>Reply...</button>
-        </div>;
+        </div> : null;
     }
 }
 

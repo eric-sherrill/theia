@@ -24,23 +24,27 @@ describe('Preferences', function () {
     const { FileService } = require('@theia/filesystem/lib/browser/file-service');
     const { PreferenceLanguageOverrideService } = require('@theia/core/lib/browser/preferences/preference-language-override-service');
     const { MonacoTextModelService } = require('@theia/monaco/lib/browser/monaco-text-model-service');
+    const { PreferenceSchemaProvider } = require('@theia/core/lib/browser/preferences/preference-contribution')
     const { container } = window.theia;
     /** @type {import ('@theia/core/lib/browser/preferences/preference-service').PreferenceService} */
     const preferenceService = container.get(PreferenceService);
+    /** @type {import ('@theia/core/lib/browser/preferences/preference-language-override-service').PreferenceLanguageOverrideService} */
     const overrideService = container.get(PreferenceLanguageOverrideService);
     const fileService = container.get(FileService);
     /** @type {import ('@theia/core/lib/common/uri').default} */
     const uri = preferenceService.getConfigUri(PreferenceScope.Workspace);
     /** @type {import('@theia/preferences/lib/browser/folders-preferences-provider').FoldersPreferencesProvider} */
     const folderPreferences = container.getNamed(PreferenceProvider, PreferenceScope.Folder);
+    /** @type PreferenceSchemaProvider */
+    const schemaProvider = container.get(PreferenceSchemaProvider);
     const modelService = container.get(MonacoTextModelService);
 
-    const swift = 'swift'; // Probably not in our preference files...
+    const overrideIdentifier = 'bargle-noddle-zaus'; // Probably not in our preference files...
     const tabSize = 'editor.tabSize';
     const fontSize = 'editor.fontSize';
-    const override = overrideService.markLanguageOverride(swift);
-    const overriddenTabSize = overrideService.overridePreferenceName({ overrideIdentifier: swift, preferenceName: tabSize });
-    const overriddenFontSize = overrideService.overridePreferenceName({ overrideIdentifier: swift, preferenceName: fontSize });
+    const override = overrideService.markLanguageOverride(overrideIdentifier);
+    const overriddenTabSize = overrideService.overridePreferenceName({ overrideIdentifier, preferenceName: tabSize });
+    const overriddenFontSize = overrideService.overridePreferenceName({ overrideIdentifier, preferenceName: fontSize });
     /**
      * @returns {Promise<Record<string, any>>}
      */
@@ -62,6 +66,13 @@ describe('Preferences', function () {
     }
 
     async function deleteAllValues() {
+        return setValueTo(undefined);
+    }
+
+    /**
+     * @param {any} value - A JSON value to write to the workspace preference file.
+     */
+    async function setValueTo(value) {
         const reference = await modelService.createModelReference(uri);
         if (reference.object.dirty) {
             await reference.object.revert();
@@ -69,7 +80,7 @@ describe('Preferences', function () {
         /** @type {import ('@theia/preferences/lib/browser/folder-preference-provider').FolderPreferenceProvider} */
         const provider = Array.from(folderPreferences['providers'].values()).find(candidate => candidate.getConfigUri().isEqual(uri));
         assert.isDefined(provider);
-        await provider['doSetPreference']('', [], undefined);
+        await provider['doSetPreference']('', [], value);
         reference.dispose();
     }
 
@@ -80,6 +91,7 @@ describe('Preferences', function () {
         assert.isDefined(uri, 'The workspace config URI should be defined!');
         fileExistsBeforehand = await fileService.exists(uri);
         contentBeforehand = await fileService.read(uri).then(({ value }) => value).catch(() => '');
+        schemaProvider.registerOverrideIdentifier(overrideIdentifier);
         await deleteAllValues();
     });
 
@@ -87,7 +99,10 @@ describe('Preferences', function () {
         if (!fileExistsBeforehand) {
             await fileService.delete(uri, { fromUserGesture: false }).catch(() => { });
         } else {
-            await fileService.write(uri, contentBeforehand);
+            let content = '';
+            try { content = JSON.parse(contentBeforehand); } catch { }
+            // Use the preference service because its promise is guaranteed to resolve after the file change is complete.
+            await setValueTo(content);
         }
     });
 
@@ -156,5 +171,37 @@ describe('Preferences', function () {
         assert.equal(preferenceService.get(overriddenFontSize), startingFontSize, 'The overridden value should revert to the default.');
         const prefs = await getPreferences();
         shouldBeUndefined(prefs[override], override);
+    });
+
+    it('Handles many synchronous settings of preferences gracefully', async function () {
+        let settings = 0;
+        const promises = [];
+        const searchPref = 'search.searchOnTypeDebouncePeriod'
+        const channelPref = 'output.maxChannelHistory'
+        const hoverPref = 'workbench.hover.delay';
+        let searchDebounce;
+        let channelHistory;
+        let hoverDelay;
+        /** @type import ('@theia/core/src/browser/preferences/preference-service').PreferenceChanges | undefined */
+        let event;
+        const toDispose = preferenceService.onPreferencesChanged(e => event = e);
+        while (settings++ < 50) {
+            searchDebounce = 100 + Math.floor(Math.random() * 500);
+            channelHistory = 200 + Math.floor(Math.random() * 800);
+            hoverDelay = 250 + Math.floor(Math.random() * 2_500);
+            promises.push(
+                preferenceService.set(searchPref, searchDebounce),
+                preferenceService.set(channelPref, channelHistory),
+                preferenceService.set(hoverPref, hoverDelay)
+            );
+        }
+        const results = await Promise.allSettled(promises);
+        const expectedValues = { [searchPref]: searchDebounce, [channelPref]: channelHistory, [hoverPref]: hoverDelay };
+        const actualValues = { [searchPref]: preferenceService.get(searchPref), [channelPref]: preferenceService.get(channelPref), [hoverPref]: preferenceService.get(hoverPref), }
+        const eventValues = event && Object.keys(event).reduce((accu, key) => { accu[key] = event[key].newValue; return accu; }, {});
+        toDispose.dispose();
+        assert(results.every(setting => setting.status === 'fulfilled'), 'All promises should have resolved rather than rejected.');
+        assert.deepEqual(actualValues, eventValues, 'The event should reflect the current state of the service.');
+        assert.deepEqual(expectedValues, actualValues, 'The service state should reflect the most recent setting');
     });
 });

@@ -28,6 +28,7 @@
 
 @import url("./preference-context-menu.css");
 @import url("./preference-array.css");
+@import url("./preference-file.css");
 @import url("./preference-object.css");
 @import url("./search-input.css");
 
@@ -80,6 +81,7 @@
     background: var(--theia-editor-background);
     border-right: unset;
     border-bottom: var(--theia-border-width) solid var(--theia-tab-unfocusedInactiveForeground);
+    border-top: none;
 }
 
 #theia-main-content-panel .theia-settings-container .tabbar-underline {
@@ -88,6 +90,14 @@
     top: calc(var(--theia-private-horizontal-tab-height) + var(--theia-private-horizontal-tab-scrollbar-rail-height) / 2 - 1px);
     border-top: 1px solid var(--theia-tab-unfocusedInactiveForeground);
     z-index: -1;
+}
+
+#theia-main-content-panel .theia-settings-container #preferences-scope-tab-bar .preferences-scope-tab {
+    color: var(--theia-panelTitle-inactiveForeground);
+}
+
+#theia-main-content-panel .theia-settings-container #preferences-scope-tab-bar .preferences-scope-tab:hover {
+    color: var(--theia-panelTitle-activeForeground);
 }
 
 #theia-main-content-panel .theia-settings-container #preferences-scope-tab-bar .preferences-scope-tab.p-mod-current {
@@ -431,4 +441,12 @@
 
 .theia-settings-container .preference-modified-scope-wrapper:not(:last-child)::after {
     content: ', ';
+}
+
+/** Select component */
+
+.theia-settings-container .theia-select-component {
+    height: 26px;
+    width: 100%;
+    max-width: 320px;
 }

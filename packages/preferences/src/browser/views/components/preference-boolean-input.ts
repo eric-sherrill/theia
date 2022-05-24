@@ -14,8 +14,10 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable } from '@theia/core/shared/inversify';
-import { PreferenceLeafNodeRenderer } from './preference-node-renderer';
+import { injectable, interfaces } from '@theia/core/shared/inversify';
+import { Preference } from '../../util/preference-types';
+import { PreferenceLeafNodeRenderer, PreferenceNodeRenderer } from './preference-node-renderer';
+import { PreferenceLeafNodeRendererContribution } from './preference-node-renderer-creator';
 
 @injectable()
 export class PreferenceBooleanInputRenderer extends PreferenceLeafNodeRenderer<boolean, HTMLInputElement> {
@@ -24,9 +26,13 @@ export class PreferenceBooleanInputRenderer extends PreferenceLeafNodeRenderer<b
         this.interactable = interactable;
         interactable.type = 'checkbox';
         interactable.classList.add('theia-input');
-        interactable.defaultChecked = this.getValue();
+        interactable.defaultChecked = Boolean(this.getValue());
         interactable.onchange = this.handleUserInteraction.bind(this);
         parent.appendChild(interactable);
+    }
+
+    protected override getAdditionalNodeClassnames(): Iterable<string> {
+        return ['boolean'];
     }
 
     protected getFallbackValue(): false {
@@ -40,10 +46,24 @@ export class PreferenceBooleanInputRenderer extends PreferenceLeafNodeRenderer<b
     protected doHandleValueChange(): void {
         const currentValue = this.interactable.checked;
         this.updateInspection();
-        const newValue = this.getValue();
+        const newValue = Boolean(this.getValue());
         this.updateModificationStatus(newValue);
         if (newValue !== currentValue && document.activeElement !== this.interactable) {
             this.interactable.checked = newValue;
         }
+    }
+}
+
+@injectable()
+export class PreferenceBooleanInputRendererContribution extends PreferenceLeafNodeRendererContribution {
+    static ID = 'preference-boolean-input-renderer';
+    id = PreferenceBooleanInputRendererContribution.ID;
+
+    canHandleLeafNode(node: Preference.LeafNode): number {
+        return Preference.LeafNode.getType(node) === 'boolean' ? 2 : 0;
+    }
+
+    createLeafNodeRenderer(container: interfaces.Container): PreferenceNodeRenderer {
+        return container.get(PreferenceBooleanInputRenderer);
     }
 }

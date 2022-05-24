@@ -602,6 +602,11 @@ export class FileService {
 
     /**
      * Tests a user's permissions for the given resource.
+     * @param resource `URI` of the resource which should be tested.
+     * @param mode An optional integer that specifies the accessibility checks to be performed.
+     *      Check `FileAccess.Constants` for possible values of mode.
+     *      It is possible to create a mask consisting of the bitwise `OR` of two or more values (e.g. FileAccess.Constants.W_OK | FileAccess.Constants.R_OK).
+     *      If `mode` is not defined, `FileAccess.Constants.F_OK` will be used instead.
      */
     async access(resource: URI, mode?: number): Promise<boolean> {
         const provider = await this.withProvider(resource);
@@ -1120,8 +1125,8 @@ export class FileService {
         // if target exists get valid target
         if (exists && !overwrite) {
             const parent = await this.resolve(target.parent);
-            const name = isSameResourceWithDifferentPathCase ? target.path.name : target.path.name + '_copy';
-            target = FileSystemUtils.generateUniqueResourceURI(target.parent, parent, name, target.path.ext);
+            const targetFileStat = await this.resolve(target);
+            target = FileSystemUtils.generateUniqueResourceURI(parent, target, targetFileStat.isDirectory, isSameResourceWithDifferentPathCase ? 'copy' : undefined);
         }
 
         // delete as needed (unless target is same resource with different path case)

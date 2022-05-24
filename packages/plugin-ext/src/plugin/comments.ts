@@ -171,7 +171,7 @@ export class CommentsExtImpl implements CommentsExt {
 
         const documentData = this._documents.getDocumentData(URI.revive(uriComponents));
         if (documentData) {
-            const ranges: theia.Range[] | undefined = await commentController.commentingRangeProvider!.provideCommentingRanges(documentData.document, token);
+            const ranges: theia.Range[] | undefined | null = await commentController.commentingRangeProvider!.provideCommentingRanges(documentData.document, token);
             if (ranges) {
                 return ranges.map(x => fromRange(x));
             }
@@ -185,6 +185,7 @@ type CommentThreadModification = Partial<{
     contextValue: string | undefined,
     comments: theia.Comment[],
     collapsibleState: theia.CommentThreadCollapsibleState
+    canReply: boolean;
 }>;
 
 export class ExtHostCommentThread implements theia.CommentThread, theia.Disposable {
@@ -283,6 +284,17 @@ export class ExtHostCommentThread implements theia.CommentThread, theia.Disposab
         return this._isDisposed;
     }
 
+    private _canReply: boolean = true;
+    get canReply(): boolean {
+        return this._canReply;
+    }
+
+    set canReply(canReply: boolean) {
+        this._canReply = canReply;
+        this.modifications.canReply = canReply;
+        this._onDidUpdateCommentThread.fire();
+    }
+
     private commentsMap: Map<theia.Comment, number> = new Map<theia.Comment, number>();
 
     private acceptInputDisposables = new DisposableCollection();
@@ -344,6 +356,9 @@ export class ExtHostCommentThread implements theia.CommentThread, theia.Disposab
         }
         if (modified('collapsibleState')) {
             formattedModifications.collapseState = convertToCollapsibleState(this.collapseState);
+        }
+        if (modified('canReply')) {
+            formattedModifications.canReply = this.canReply;
         }
         this.modifications = {};
 

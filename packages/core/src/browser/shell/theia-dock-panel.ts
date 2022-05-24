@@ -20,10 +20,10 @@ import { Signal } from '@phosphor/signaling';
 import { Disposable, DisposableCollection } from '../../common/disposable';
 import { UnsafeWidgetUtilities } from '../widgets';
 import { CorePreferences } from '../core-preferences';
-import { inject } from 'inversify';
 import { Emitter, environment } from '../../common';
 
 export const MAXIMIZED_CLASS = 'theia-maximized';
+export const ACTIVE_TABBAR_CLASS = 'theia-tabBar-active';
 const VISIBLE_MENU_MAXIMIZED_CLASS = 'theia-visible-menu-maximized';
 
 export const MAIN_AREA_ID = 'theia-main-content-panel';
@@ -52,7 +52,7 @@ export class TheiaDockPanel extends DockPanel {
     readonly onDidToggleMaximized = this.onDidToggleMaximizedEmitter.event;
 
     constructor(options?: DockPanel.IOptions,
-        @inject(CorePreferences) protected readonly preferences?: CorePreferences
+        protected readonly preferences?: CorePreferences
     ) {
         super(options);
         this['_onCurrentChanged'] = (sender: TabBar<Widget>, args: TabBar.ICurrentChangedArgs<Widget>) => {
@@ -106,6 +106,7 @@ export class TheiaDockPanel extends DockPanel {
     markAsCurrent(title: Title<Widget> | undefined): void {
         this.toDisposeOnMarkAsCurrent.dispose();
         this._currentTitle = title;
+        this.markActiveTabBar(title);
         if (title) {
             const resetCurrent = () => this.markAsCurrent(undefined);
             title.owner.disposed.connect(resetCurrent);
@@ -115,17 +116,31 @@ export class TheiaDockPanel extends DockPanel {
         }
     }
 
+    markActiveTabBar(title?: Title<Widget>): void {
+        const tabBars = toArray(this.tabBars());
+        tabBars.forEach(tabBar => tabBar.removeClass(ACTIVE_TABBAR_CLASS));
+        const activeTabBar = title && this.findTabBar(title);
+        if (activeTabBar) {
+            activeTabBar.addClass(ACTIVE_TABBAR_CLASS);
+        } else if (tabBars.length > 0) {
+            // At least one tabbar needs to be active
+            tabBars[0].addClass(ACTIVE_TABBAR_CLASS);
+        }
+    }
+
     override addWidget(widget: Widget, options?: DockPanel.IAddOptions): void {
         if (this.mode === 'single-document' && widget.parent === this) {
             return;
         }
         super.addWidget(widget, options);
         this.widgetAdded.emit(widget);
+        this.markActiveTabBar(widget.title);
     }
 
     override activateWidget(widget: Widget): void {
         super.activateWidget(widget);
         this.widgetActivated.emit(widget);
+        this.markActiveTabBar(widget.title);
     }
 
     protected override onChildRemoved(msg: Widget.ChildMessage): void {
@@ -226,4 +241,10 @@ export class TheiaDockPanel extends DockPanel {
         return this.maximizedElement;
     }
 
+}
+export namespace TheiaDockPanel {
+    export const Factory = Symbol('TheiaDockPanel#Factory');
+    export interface Factory {
+        (options?: DockPanel.IOptions): TheiaDockPanel;
+    }
 }

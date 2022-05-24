@@ -24,36 +24,60 @@ import { CliContribution } from '@theia/core/lib/node/cli';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { WorkspaceServer, CommonWorkspaceUtils } from '../common';
 import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
+import URI from '@theia/core/lib/common/uri';
 
 @injectable()
 export class WorkspaceCliContribution implements CliContribution {
 
+    @inject(EnvVariablesServer) protected readonly envVariablesServer: EnvVariablesServer;
+    @inject(CommonWorkspaceUtils) protected readonly workspaceUtils: CommonWorkspaceUtils;
+
     workspaceRoot = new Deferred<string | undefined>();
 
     configure(conf: yargs.Argv): void {
-        conf.usage('$0 [workspace-directory] [options]');
+        conf.usage('$0 [workspace-directories] [options]');
         conf.option('root-dir', {
             description: 'DEPRECATED: Sets the workspace directory.',
         });
     }
 
-    setArguments(args: yargs.Arguments): void {
-        let wsPath: string | undefined = typeof args._[2] === 'undefined' ? undefined : String(args._[2]);
-        if (!wsPath) {
-            wsPath = args['root-dir'] as string;
-            if (!wsPath) {
-                this.workspaceRoot.resolve(undefined);
-                return;
+    async setArguments(args: yargs.Arguments): Promise<void> {
+        const workspaceArguments = args._.slice(2).map(probablyAlreadyString => String(probablyAlreadyString));
+        if (workspaceArguments.length === 0 && args['root-dir']) {
+            workspaceArguments.push(String(args['root-dir']));
+        }
+        if (workspaceArguments.length === 0) {
+            this.workspaceRoot.resolve(undefined);
+        } else if (workspaceArguments.length === 1) {
+            this.workspaceRoot.resolve(this.normalizeWorkspaceArg(workspaceArguments[0]));
+        } else {
+            this.workspaceRoot.resolve(this.buildWorkspaceForMultipleArguments(workspaceArguments));
+        }
+    }
+
+    protected normalizeWorkspaceArg(raw: string): string {
+        return path.resolve(raw).replace(/\/$/, '');
+    }
+
+    protected async buildWorkspaceForMultipleArguments(workspaceArguments: string[]): Promise<string | undefined> {
+        try {
+            const dirs = await Promise.all(workspaceArguments.map(async maybeDir => (await fs.stat(maybeDir).catch(() => undefined))?.isDirectory()));
+            const folders = workspaceArguments.filter((_, index) => dirs[index]).map(dir => ({ path: this.normalizeWorkspaceArg(dir) }));
+            if (folders.length < 2) {
+                return folders[0]?.path;
             }
+            const untitledWorkspaceUri = await this.workspaceUtils.getUntitledWorkspaceUri(
+                new URI(await this.envVariablesServer.getConfigDirUri()),
+                async uri => !await fs.pathExists(uri.path.fsPath()),
+            );
+            const untitledWorkspacePath = untitledWorkspaceUri.path.fsPath();
+
+            await fs.ensureDir(path.dirname(untitledWorkspacePath));
+            await fs.writeFile(untitledWorkspacePath, JSON.stringify({ folders }, undefined, 4));
+            return untitledWorkspacePath;
+        } catch {
+            return undefined;
         }
-        if (!path.isAbsolute(wsPath)) {
-            const cwd = process.cwd();
-            wsPath = path.join(cwd, wsPath);
-        }
-        if (wsPath && wsPath.endsWith('/')) {
-            wsPath = wsPath.slice(0, -1);
-        }
-        this.workspaceRoot.resolve(wsPath);
     }
 }
 
@@ -101,14 +125,16 @@ export class DefaultWorkspaceServer implements WorkspaceServer, BackendApplicati
         return this.root.promise;
     }
 
-    async setMostRecentlyUsedWorkspace(uri: string): Promise<void> {
+    async setMostRecentlyUsedWorkspace(rawUri: string): Promise<void> {
+        const uri = rawUri && new URI(rawUri).toString(); // the empty string is used as a signal from the frontend not to load a workspace.
         this.root = new Deferred();
         this.root.resolve(uri);
         const recentRoots = Array.from(new Set([uri, ...await this.getRecentWorkspaces()]));
         this.writeToUserHome({ recentRoots });
     }
 
-    async removeRecentWorkspace(uri: string): Promise<void> {
+    async removeRecentWorkspace(rawUri: string): Promise<void> {
+        const uri = rawUri && new URI(rawUri).toString(); // the empty string is used as a signal from the frontend not to load a workspace.
         const recentRoots = await this.getRecentWorkspaces();
         const index = recentRoots.indexOf(uri);
         if (index !== -1) {
@@ -126,7 +152,7 @@ export class DefaultWorkspaceServer implements WorkspaceServer, BackendApplicati
             data.recentRoots.forEach(element => {
                 if (element.length > 0) {
                     if (this.workspaceStillExist(element)) {
-                        listUri.push(FileUri.fsPath(element));
+                        listUri.push(element);
                     }
                 }
             });

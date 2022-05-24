@@ -47,6 +47,7 @@ export interface IJSONSchema {
     maxProperties?: number;
     dependencies?: IJSONSchemaMap | { [prop: string]: string[] };
     items?: IJSONSchema | IJSONSchema[];
+    prefixItems?: IJSONSchema[];
     minItems?: number;
     maxItems?: number;
     uniqueItems?: boolean;
@@ -65,13 +66,11 @@ export interface IJSONSchema {
     allOf?: IJSONSchema[];
     oneOf?: IJSONSchema[];
     not?: IJSONSchema;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     enum?: JSONValue[];
     format?: string;
 
     // schema draft 06
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const?: any;
+    const?: JSONValue;
     contains?: IJSONSchema;
     propertyNames?: IJSONSchema;
 
@@ -101,7 +100,6 @@ export interface IJSONSchemaMap {
 export interface IJSONSchemaSnippet {
     label?: string;
     description?: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body?: any; // a object that will be JSON stringified
+    body?: JSONValue; // a object that will be JSON stringified
     bodyText?: string; // an already stringified JSON object that can contain new lines (\n) and tabs (\t)
 }

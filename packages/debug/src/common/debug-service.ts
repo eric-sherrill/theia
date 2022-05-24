@@ -71,33 +71,39 @@ export interface DebugService extends Disposable {
     provideDebugConfigurations(debugType: string, workspaceFolderUri: string | undefined): Promise<DebugConfiguration[]>;
 
     /**
-     * Provides dynamic debug configurations by a provider debug type
-     * @returns An Array of objects containing the debug type and corresponding dynamic debug configurations array
+     * @returns A Record of debug configuration provider types and a corresponding dynamic debug configurations array
      */
-    provideDynamicDebugConfigurations?(): Promise<{ type: string, configurations: DebugConfiguration[] }[]>;
+    provideDynamicDebugConfigurations?(): Promise<Record<string, DebugConfiguration[]>>;
 
     /**
      * Resolves a [debug configuration](#DebugConfiguration) by filling in missing values
      * or by adding/changing/removing attributes before variable substitution.
      * @param debugConfiguration The [debug configuration](#DebugConfiguration) to resolve.
-     * @returns The resolved debug configuration.
+     * @returns The resolved debug configuration, undefined or null.
      */
-    resolveDebugConfiguration(config: DebugConfiguration, workspaceFolderUri: string | undefined): Promise<DebugConfiguration>;
+    resolveDebugConfiguration(
+        config: DebugConfiguration,
+        workspaceFolderUri: string | undefined
+    ): Promise<DebugConfiguration | undefined | null>;
 
     /**
      * Resolves a [debug configuration](#DebugConfiguration) by filling in missing values
      * or by adding/changing/removing attributes with substituted variables.
      * @param debugConfiguration The [debug configuration](#DebugConfiguration) to resolve.
-     * @returns The resolved debug configuration.
+     * @returns The resolved debug configuration, undefined or null.
      */
-    resolveDebugConfigurationWithSubstitutedVariables(config: DebugConfiguration, workspaceFolderUri: string | undefined): Promise<DebugConfiguration>;
+    resolveDebugConfigurationWithSubstitutedVariables(
+        config: DebugConfiguration,
+        workspaceFolderUri: string | undefined
+    ): Promise<DebugConfiguration | undefined | null>;
 
     /**
      * Creates a new [debug adapter session](#DebugAdapterSession).
      * @param config The resolved [debug configuration](#DebugConfiguration).
+     * @param workspaceFolderUri The worspace folder for this sessions or undefined when folderless
      * @returns The identifier of the created [debug adapter session](#DebugAdapterSession).
      */
-    createDebugSession(config: DebugConfiguration): Promise<string>;
+    createDebugSession(config: DebugConfiguration, workspaceFolderUri: string | undefined): Promise<string>;
 
     /**
      * Stop a running session for the given session id.

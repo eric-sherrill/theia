@@ -37,21 +37,9 @@ export class PluginDebugAdapterContribution {
         return this.description.label;
     }
 
-    async provideDebugConfigurations(workspaceFolderUri: string | undefined, dynamic: boolean = false): Promise<DebugConfiguration[]> {
-        return this.debugExt.$provideDebugConfigurations(this.type, workspaceFolderUri, dynamic);
-    }
-
-    async resolveDebugConfiguration(config: DebugConfiguration, workspaceFolderUri: string | undefined): Promise<DebugConfiguration | undefined> {
-        return this.debugExt.$resolveDebugConfigurations(config, workspaceFolderUri);
-    }
-
-    async resolveDebugConfigurationWithSubstitutedVariables(config: DebugConfiguration, workspaceFolderUri: string | undefined): Promise<DebugConfiguration | undefined> {
-        return this.debugExt.$resolveDebugConfigurationWithSubstitutedVariables(config, workspaceFolderUri);
-    }
-
-    async createDebugSession(config: DebugConfiguration): Promise<string> {
+    async createDebugSession(config: DebugConfiguration, workspaceFolder: string | undefined): Promise<string> {
         await this.pluginService.activateByDebug('onDebugAdapterProtocolTracker', config.type);
-        return this.debugExt.$createDebugSession(config);
+        return this.debugExt.$createDebugSession(config, workspaceFolder);
     }
 
     async terminateDebugSession(sessionId: string): Promise<void> {

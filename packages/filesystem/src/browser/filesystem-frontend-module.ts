@@ -24,7 +24,7 @@ import { bindFileSystemPreferences } from './filesystem-preferences';
 import { FileSystemWatcher } from './filesystem-watcher';
 import { FileSystemFrontendContribution } from './filesystem-frontend-contribution';
 import { FileUploadService } from './file-upload-service';
-import { FileTreeLabelProvider } from './file-tree/file-tree-label-provider';
+import { FileTreeDecoratorAdapter, FileTreeLabelProvider } from './file-tree';
 import { FileService, FileServiceContribution } from './file-service';
 import { RemoteFileSystemProvider, RemoteFileSystemServer, remoteFileSystemPath, RemoteFileSystemProxyFactory } from '../common/remote-file-system-provider';
 import { FileSystem, FileStat, FileMoveOptions, FileDeleteOptions, FileSystemError } from '../common/filesystem';
@@ -38,8 +38,10 @@ import { FileSystemWatcherErrorHandler } from './filesystem-watcher-error-handle
 import { UTF8 } from '@theia/core/lib/common/encodings';
 import { FilepathBreadcrumbsContribution } from './breadcrumbs/filepath-breadcrumbs-contribution';
 import { BreadcrumbsFileTreeWidget, createFileTreeBreadcrumbsWidget } from './breadcrumbs/filepath-breadcrumbs-container';
+import { FilesystemSaveResourceService } from './filesystem-save-resource-service';
+import { SaveResourceService } from '@theia/core/lib/browser/save-resource-service';
 
-export default new ContainerModule(bind => {
+export default new ContainerModule((bind, unbind, isBound, rebind) => {
     bindFileSystemPreferences(bind);
 
     bindContributionProvider(bind, FileServiceContribution);
@@ -224,6 +226,11 @@ export default new ContainerModule(bind => {
     );
     bind(FilepathBreadcrumbsContribution).toSelf().inSingletonScope();
     bind(BreadcrumbsContribution).toService(FilepathBreadcrumbsContribution);
+
+    bind(FilesystemSaveResourceService).toSelf().inSingletonScope();
+    rebind(SaveResourceService).toService(FilesystemSaveResourceService);
+
+    bind(FileTreeDecoratorAdapter).toSelf().inSingletonScope();
 });
 
 export function bindFileResource(bind: interfaces.Bind): void {

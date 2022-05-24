@@ -16,17 +16,18 @@
 
 import * as theia from '@theia/plugin';
 import * as lstypes from '@theia/core/shared/vscode-languageserver-protocol';
-import { URI } from './types-impl';
+import { QuickPickItemKind, URI } from './types-impl';
 import * as rpc from '../common/plugin-api-rpc';
 import {
     DecorationOptions, EditorPosition, Plugin, Position, WorkspaceTextEditDto, WorkspaceFileEditDto, Selection, TaskDto, WorkspaceEditDto
 } from '../common/plugin-api-rpc';
 import * as model from '../common/plugin-api-rpc-model';
-import { LanguageFilter, LanguageSelector, RelativePattern } from '@theia/callhierarchy/lib/common/language-selector';
-import { isMarkdownString, MarkdownString } from './markdown-string';
+import { LanguageFilter, LanguageSelector, RelativePattern } from '@theia/editor/lib/common/language-selector';
+import { MarkdownString as PluginMarkdownStringImpl } from './markdown-string';
 import * as types from './types-impl';
 import { UriComponents } from '../common/uri-components';
 import { isReadonlyArray } from '../common/arrays';
+import { MarkdownString as MarkdownStringDTO } from '@theia/core/lib/common/markdown-rendering';
 
 const SIDE_GROUP = -2;
 const ACTIVE_GROUP = -1;
@@ -172,7 +173,7 @@ export function fromRangeOrRangeWithMessage(ranges: theia.Range[] | theia.Decora
     }
 }
 
-export function fromManyMarkdown(markup: (theia.MarkdownString | theia.MarkedString)[]): model.MarkdownString[] {
+export function fromManyMarkdown(markup: (theia.MarkdownString | theia.MarkedString)[]): MarkdownStringDTO[] {
     return markup.map(fromMarkdown);
 }
 
@@ -188,23 +189,27 @@ function isCodeblock(thing: any): thing is Codeblock {
         && typeof (<Codeblock>thing).value === 'string';
 }
 
-export function fromMarkdown(markup: theia.MarkdownString | theia.MarkedString): model.MarkdownString {
+export function fromMarkdown(markup: theia.MarkdownString | theia.MarkedString): MarkdownStringDTO {
     if (isCodeblock(markup)) {
         const { language, value } = markup;
         return { value: '```' + language + '\n' + value + '\n```\n' };
-    } else if (isMarkdownString(markup)) {
+    } else if (markup instanceof PluginMarkdownStringImpl) {
+        return markup.toJSON();
+    } else if (MarkdownStringDTO.is(markup)) {
         return markup;
     } else if (typeof markup === 'string') {
-        return { value: <string>markup };
+        return { value: markup };
     } else {
         return { value: '' };
     }
 }
 
-export function toMarkdown(value: model.MarkdownString): MarkdownString {
-    const ret = new MarkdownString(value.value);
-    ret.isTrusted = value.isTrusted;
-    return ret;
+export function toMarkdown(value: MarkdownStringDTO): PluginMarkdownStringImpl {
+    const implemented = new PluginMarkdownStringImpl(value.value, value.supportThemeIcons);
+    implemented.isTrusted = value.isTrusted;
+    implemented.supportHtml = value.supportHtml;
+    implemented.baseUri = value.baseUri && URI.revive(implemented.baseUri);
+    return implemented;
 }
 
 export function fromDocumentSelector(selector: theia.DocumentSelector | undefined): LanguageSelector | undefined {
@@ -466,7 +471,7 @@ export namespace ParameterInformation {
     export function to(info: model.ParameterInformation): types.ParameterInformation {
         return {
             label: info.label,
-            documentation: isMarkdownString(info.documentation) ? toMarkdown(info.documentation) : info.documentation
+            documentation: MarkdownStringDTO.is(info.documentation) ? toMarkdown(info.documentation) : info.documentation
         };
     }
 }
@@ -484,7 +489,7 @@ export namespace SignatureInformation {
     export function to(info: model.SignatureInformation): types.SignatureInformation {
         return {
             label: info.label,
-            documentation: isMarkdownString(info.documentation) ? toMarkdown(info.documentation) : info.documentation,
+            documentation: MarkdownStringDTO.is(info.documentation) ? toMarkdown(info.documentation) : info.documentation,
             parameters: info.parameters && info.parameters.map(ParameterInformation.to)
         };
     }
@@ -675,7 +680,7 @@ export function toLocation(value: model.Location): types.Location {
     return new types.Location(URI.revive(value.uri), toRange(value.range));
 }
 
-export function fromCallHierarchyItem(item: theia.CallHierarchyItem): model.CallHierarchyItem {
+export function fromCallHierarchyItem(item: types.CallHierarchyItem): model.CallHierarchyItem {
     return <model.CallHierarchyItem>{
         kind: SymbolKind.fromSymbolKind(item.kind),
         name: item.name,
@@ -684,7 +689,8 @@ export function fromCallHierarchyItem(item: theia.CallHierarchyItem): model.Call
         range: fromRange(item.range),
         selectionRange: fromRange(item.selectionRange),
         tags: item.tags,
-        data: item.data,
+        _itemId: item._itemId,
+        _sessionId: item._sessionId,
     };
 }
 
@@ -698,7 +704,9 @@ export function toCallHierarchyItem(value: model.CallHierarchyItem): types.CallH
         toRange(value.selectionRange),
     );
     item.tags = value.tags;
-    item.data = value.data;
+    item._itemId = value._itemId;
+    item._sessionId = value._sessionId;
+
     return item;
 }
 
@@ -735,7 +743,7 @@ export function fromTask(task: theia.Task): TaskDto | undefined {
         taskDto.problemMatcher = task.problemMatchers;
     }
     if ('detail' in task) {
-        taskDto.detail = (task as theia.Task2).detail;
+        taskDto.detail = task.detail;
     }
     if (typeof task.scope === 'object') {
         taskDto.scope = task.scope.uri.toString();
@@ -797,7 +805,7 @@ export function toTask(taskDto: TaskDto): theia.Task {
     result.name = label;
     result.source = source;
     if (detail) {
-        (result as theia.Task2).detail = detail;
+        result.detail = detail;
     }
     if (typeof scope === 'string') {
         const uri = URI.parse(scope);
@@ -885,13 +893,12 @@ export function fromShellExecution(execution: theia.ShellExecution, taskDto: Tas
         return taskDto;
     }
 
-    const command = execution.command;
-    if (typeof command === 'string') {
-        taskDto.command = command;
+    if (execution.command) {
+        taskDto.command = getCommand(execution.command);
         taskDto.args = getShellArgs(execution.args);
         return taskDto;
     } else {
-        throw new Error('Converting ShellQuotedString command is not implemented');
+        throw new Error('Command is undefined');
     }
 }
 
@@ -947,6 +954,10 @@ export function getShellArgs(args: undefined | (string | theia.ShellQuotedString
     });
 
     return result;
+}
+
+function getCommand(command: string | theia.ShellQuotedString): string {
+    return typeof command === 'string' ? command : command.value;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1067,31 +1078,24 @@ export function fromColorPresentation(colorPresentation: theia.ColorPresentation
 }
 
 export function convertToTransferQuickPickItems(items: rpc.Item[]): rpc.TransferQuickPickItems[] {
-    const pickItems: rpc.TransferQuickPickItems[] = [];
-    for (let handle = 0; handle < items.length; handle++) {
-        const item = items[handle];
-        let label: string;
-        let description: string | undefined;
-        let detail: string | undefined;
-        let picked: boolean | undefined;
-        let alwaysShow: boolean | undefined;
-
+    return items.map<rpc.TransferQuickPickItems>((item, index) => {
         if (typeof item === 'string') {
-            label = item;
+            return { type: 'item', label: item, handle: index };
+        } else if (item.kind === QuickPickItemKind.Separator) {
+            return { type: 'separator', label: item.label, handle: index };
         } else {
-            ({ label, description, detail, picked, alwaysShow } = item);
+            const { label, description, detail, picked, alwaysShow } = item;
+            return {
+                type: 'item',
+                label,
+                description,
+                detail,
+                picked,
+                alwaysShow,
+                handle: index,
+            };
         }
-
-        pickItems.push({
-            label,
-            description,
-            handle,
-            detail,
-            picked,
-            alwaysShow
-        });
-    }
-    return pickItems;
+    });
 }
 
 export namespace DecorationRenderOptions {

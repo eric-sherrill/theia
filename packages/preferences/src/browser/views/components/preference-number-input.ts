@@ -14,8 +14,10 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable } from '@theia/core/shared/inversify';
-import { PreferenceLeafNodeRenderer } from './preference-node-renderer';
+import { injectable, interfaces } from '@theia/core/shared/inversify';
+import { Preference } from '../../util/preference-types';
+import { PreferenceLeafNodeRenderer, PreferenceNodeRenderer } from './preference-node-renderer';
+import { PreferenceLeafNodeRendererContribution } from './preference-node-renderer-creator';
 
 interface PreferenceNumberInputValidation {
     /**
@@ -51,7 +53,7 @@ export class PreferenceNumberInputRenderer extends PreferenceLeafNodeRenderer<nu
         this.interactable = interactable;
         interactable.type = 'number';
         interactable.classList.add('theia-input');
-        interactable.defaultValue = this.getValue().toString();
+        interactable.defaultValue = this.getValue()?.toString() ?? '';
         interactable.oninput = this.handleUserInteraction.bind(this);
         interactable.onblur = this.handleBlur.bind(this);
         interactableWrapper.appendChild(interactable);
@@ -82,7 +84,7 @@ export class PreferenceNumberInputRenderer extends PreferenceLeafNodeRenderer<nu
         const { value } = this.interactable;
         const currentValue = value.length ? Number(value) : NaN;
         this.updateInspection();
-        const newValue = this.getValue();
+        const newValue = this.getValue() ?? '';
         this.updateModificationStatus(newValue);
         if (newValue !== currentValue) {
             if (document.activeElement !== this.interactable) {
@@ -124,5 +126,20 @@ export class PreferenceNumberInputRenderer extends PreferenceLeafNodeRenderer<nu
 
     protected hideErrorMessage(): void {
         this.errorMessage.remove();
+    }
+}
+
+@injectable()
+export class PreferenceNumberInputRendererContribution extends PreferenceLeafNodeRendererContribution {
+    static ID = 'preference-number-input-renderer';
+    id = PreferenceNumberInputRendererContribution.ID;
+
+    canHandleLeafNode(node: Preference.LeafNode): number {
+        const type = Preference.LeafNode.getType(node);
+        return type === 'integer' || type === 'number' ? 2 : 0;
+    }
+
+    createLeafNodeRenderer(container: interfaces.Container): PreferenceNodeRenderer {
+        return container.get(PreferenceNumberInputRenderer);
     }
 }

@@ -34,21 +34,23 @@ import { PluginDebugAdapterTracker } from './plugin-debug-adapter-tracker';
 import uuid = require('uuid');
 import { DebugAdapter } from '@theia/debug/lib/node/debug-model';
 
+interface ConfigurationProviderRecord {
+    handle: number;
+    type: string;
+    trigger: DebugConfigurationProviderTriggerKind,
+    provider: theia.DebugConfigurationProvider;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
 // TODO: rename file to `debug-ext.ts`
-
 /**
  * It is supposed to work at node only.
  */
 export class DebugExtImpl implements DebugExt {
     // debug sessions by sessionId
     private sessions = new Map<string, PluginDebugAdapterSession>();
-
-    // providers by type (initial)
-    private configurationProviders = new Map<string, Set<theia.DebugConfigurationProvider>>();
-    // providers by type (dynamic)
-    private dynamicConfigurationProviders = new Map<string, Set<theia.DebugConfigurationProvider>>();
+    private configurationProviderHandleGenerator: number;
+    private configurationProviders: ConfigurationProviderRecord[];
 
     /**
      * Only use internally, don't send it to the frontend. It's expensive!
@@ -85,6 +87,8 @@ export class DebugExtImpl implements DebugExt {
             append: (value: string) => this.proxy.$appendToDebugConsole(value),
             appendLine: (value: string) => this.proxy.$appendLineToDebugConsole(value)
         };
+        this.configurationProviderHandleGenerator = 0;
+        this.configurationProviders = [];
     }
 
     /**
@@ -132,7 +136,7 @@ export class DebugExtImpl implements DebugExt {
         return this.onDidChangeBreakpointsEmitter.event;
     }
 
-    addBreakpoints(breakpoints: theia.Breakpoint[]): void {
+    addBreakpoints(breakpoints: readonly theia.Breakpoint[]): void {
         const added: theia.Breakpoint[] = [];
         for (const b of breakpoints) {
             if (this._breakpoints.has(b.id)) {
@@ -147,7 +151,7 @@ export class DebugExtImpl implements DebugExt {
         }
     }
 
-    removeBreakpoints(breakpoints: theia.Breakpoint[]): void {
+    removeBreakpoints(breakpoints: readonly theia.Breakpoint[]): void {
         const removed: theia.Breakpoint[] = [];
         const removedIds: string[] = [];
         for (const b of breakpoints) {
@@ -191,24 +195,23 @@ export class DebugExtImpl implements DebugExt {
         });
     }
 
-    registerDebugConfigurationProvider(debugType: string, provider: theia.DebugConfigurationProvider, trigger: theia.DebugConfigurationProviderTriggerKind): Disposable {
+    registerDebugConfigurationProvider(debugType: string, provider: theia.DebugConfigurationProvider, trigger: DebugConfigurationProviderTriggerKind): Disposable {
         console.log(`Debug configuration provider has been registered: ${debugType}, trigger: ${trigger}`);
-        const providersByTriggerKind = trigger === DebugConfigurationProviderTriggerKind.Initial ? this.configurationProviders : this.dynamicConfigurationProviders;
-        let providers = providersByTriggerKind.get(debugType);
-        if (!providers) {
-            providersByTriggerKind.set(debugType, providers = new Set());
-        }
-        providers.add(provider);
 
+        const handle = this.configurationProviderHandleGenerator++;
+        this.configurationProviders.push({ handle, type: debugType, trigger, provider });
+        const descriptor = {
+            handle,
+            type: debugType,
+            trigger,
+            provideDebugConfiguration: !!provider.provideDebugConfigurations,
+            resolveDebugConfigurations: !!provider.resolveDebugConfiguration,
+            resolveDebugConfigurationWithSubstitutedVariables: !!provider.resolveDebugConfigurationWithSubstitutedVariables
+        };
+        this.proxy.$registerDebugConfigurationProvider(descriptor);
         return Disposable.create(() => {
-            // eslint-disable-next-line @typescript-eslint/no-shadow
-            const providers = providersByTriggerKind.get(debugType);
-            if (providers) {
-                providers.delete(provider);
-                if (providers.size === 0) {
-                    providersByTriggerKind.delete(debugType);
-                }
-            }
+            this.configurationProviders = this.configurationProviders.filter(p => (p.handle !== handle));
+            this.proxy.$unregisterDebugConfigurationProvider(handle);
         });
     }
 
@@ -230,6 +233,7 @@ export class DebugExtImpl implements DebugExt {
         const session = this.sessions.get(sessionId);
         if (session) {
             this.onDidTerminateDebugSessionEmitter.fire(session);
+            this.sessions.delete(sessionId);
         }
     }
 
@@ -286,13 +290,14 @@ export class DebugExtImpl implements DebugExt {
         return undefined;
     }
 
-    async $createDebugSession(debugConfiguration: theia.DebugConfiguration): Promise<string> {
+    async $createDebugSession(debugConfiguration: theia.DebugConfiguration, workspaceFolderUri: string | undefined): Promise<string> {
         const sessionId = uuid.v4();
 
         const theiaSession: theia.DebugSession = {
             id: sessionId,
             type: debugConfiguration.type,
             name: debugConfiguration.name,
+            workspaceFolder: this.toWorkspaceFolder(workspaceFolderUri),
             configuration: debugConfiguration,
             customRequest: async (command: string, args?: any) => {
                 const response = await this.proxy.$customRequest(sessionId, command, args);
@@ -319,7 +324,6 @@ export class DebugExtImpl implements DebugExt {
         const debugAdapterSession = this.sessions.get(sessionId);
         if (debugAdapterSession) {
             await debugAdapterSession.stop();
-            this.sessions.delete(sessionId);
         }
     }
 
@@ -331,78 +335,59 @@ export class DebugExtImpl implements DebugExt {
         return undefined;
     }
 
-    async $provideDebugConfigurations(debugType: string, workspaceFolderUri: string | undefined, dynamic: boolean = false): Promise<theia.DebugConfiguration[]> {
-        let result: theia.DebugConfiguration[] = [];
-
-        const providers = dynamic ? this.dynamicConfigurationProviders.get(debugType) : this.configurationProviders.get(debugType);
-        if (providers) {
-            for (const provider of providers) {
-                if (provider.provideDebugConfigurations) {
-                    result = result.concat(await provider.provideDebugConfigurations(this.toWorkspaceFolder(workspaceFolderUri)) || []);
-                }
-            }
+    private getConfigurationProviderRecord(handle: number): {
+        provider: theia.DebugConfigurationProvider
+        type: string
+    } {
+        const record = this.configurationProviders.find(p => p.handle === handle);
+        if (!record) {
+            throw new Error('No Debug configuration provider found with given handle number: ' + handle);
         }
-
-        return result;
+        const { provider, type } = record;
+        return { provider, type };
     }
 
-    async $resolveDebugConfigurations(debugConfiguration: theia.DebugConfiguration, workspaceFolderUri: string | undefined): Promise<theia.DebugConfiguration | undefined> {
-        let current = debugConfiguration;
+    async $provideDebugConfigurationsByHandle(
+        handle: number,
+        workspaceFolderUri: string | undefined
+    ): Promise<theia.DebugConfiguration[]> {
+        const { provider, type } = this.getConfigurationProviderRecord(handle);
 
-        for (const providers of [
-            this.configurationProviders.get(debugConfiguration.type),
-            this.dynamicConfigurationProviders.get(debugConfiguration.type),
-            this.configurationProviders.get('*')
-        ]) {
-            if (providers) {
-                for (const provider of providers) {
-                    if (provider.resolveDebugConfiguration) {
-                        try {
-                            const next = await provider.resolveDebugConfiguration(this.toWorkspaceFolder(workspaceFolderUri), current);
-                            if (next) {
-                                current = next;
-                            } else {
-                                return current;
-                            }
-                        } catch (e) {
-                            console.error(e);
-                        }
-                    }
-                }
-            }
+        const configurations = await provider.provideDebugConfigurations?.(
+            this.toWorkspaceFolder(workspaceFolderUri)
+        );
+
+        if (!configurations) {
+            throw new Error(
+                'nothing returned from DebugConfigurationProvider.provideDebugConfigurations, type: ' + type
+            );
         }
 
-        return current;
+        return configurations;
     }
 
-    async $resolveDebugConfigurationWithSubstitutedVariables(debugConfiguration: theia.DebugConfiguration, workspaceFolderUri: string | undefined):
-        Promise<theia.DebugConfiguration | undefined> {
-        let current = debugConfiguration;
+    async $resolveDebugConfigurationByHandle(
+        handle: number,
+        workspaceFolderUri: string | undefined,
+        debugConfiguration: theia.DebugConfiguration
+    ): Promise<theia.DebugConfiguration | undefined | null> {
+        const { provider } = this.getConfigurationProviderRecord(handle);
+        return provider.resolveDebugConfiguration?.(
+            this.toWorkspaceFolder(workspaceFolderUri),
+            debugConfiguration
+        );
+    }
 
-        for (const providers of [
-            this.configurationProviders.get(debugConfiguration.type),
-            this.dynamicConfigurationProviders.get(debugConfiguration.type),
-            this.configurationProviders.get('*')
-        ]) {
-            if (providers) {
-                for (const provider of providers) {
-                    if (provider.resolveDebugConfigurationWithSubstitutedVariables) {
-                        try {
-                            const next = await provider.resolveDebugConfigurationWithSubstitutedVariables(this.toWorkspaceFolder(workspaceFolderUri), current);
-                            if (next) {
-                                current = next;
-                            } else {
-                                return current;
-                            }
-                        } catch (e) {
-                            console.error(e);
-                        }
-                    }
-                }
-            }
-        }
-
-        return current;
+    async $resolveDebugConfigurationWithSubstitutedVariablesByHandle(
+        handle: number,
+        workspaceFolderUri: string | undefined,
+        debugConfiguration: theia.DebugConfiguration
+    ): Promise<theia.DebugConfiguration | undefined | null> {
+        const { provider } = this.getConfigurationProviderRecord(handle);
+        return provider.resolveDebugConfigurationWithSubstitutedVariables?.(
+            this.toWorkspaceFolder(workspaceFolderUri),
+            debugConfiguration
+        );
     }
 
     protected async createDebugAdapterTracker(session: theia.DebugSession): Promise<theia.DebugAdapterTracker> {

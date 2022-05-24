@@ -28,7 +28,6 @@ import type * as theia from '@theia/plugin';
 import { URI as CodeURI, UriComponents } from '@theia/core/shared/vscode-uri';
 import { relative } from '../common/paths-util';
 import { startsWithIgnoreCase } from '@theia/core/lib/common/strings';
-import { MarkdownString, isMarkdownString } from './markdown-string';
 import { SymbolKind } from '../common/plugin-api-rpc-model';
 import { FileSystemProviderErrorCode, markAsFileSystemProviderError } from '@theia/filesystem/lib/common/files';
 import * as paths from 'path';
@@ -151,6 +150,11 @@ export class Disposable {
     }
 }
 
+export interface AccessibilityInformation {
+    label: string;
+    role?: string;
+}
+
 export enum StatusBarAlignment {
     Left = 1,
     Right = 2
@@ -255,6 +259,11 @@ export namespace TextEditorSelectionChangeKind {
         }
         return undefined;
     }
+}
+
+export enum TextDocumentChangeReason {
+    Undo = 1,
+    Redo = 2,
 }
 
 @es5ClassCompat
@@ -679,6 +688,12 @@ export class SnippetString {
         return this;
     }
 
+    appendChoice(values: string[], number: number = this._tabstop++): SnippetString {
+        const value = values.map(s => s.replace(/\$|}|\\|,/g, '\\$&')).join(',');
+        this.value += `\$\{${number}|${value}|\}`;
+        return this;
+    }
+
     appendVariable(name: string, defaultValue?: string | ((snippet: SnippetString) => void)): SnippetString {
 
         if (typeof defaultValue === 'function') {
@@ -924,7 +939,7 @@ export class CompletionItem implements theia.CompletionItem {
     kind?: CompletionItemKind;
     tags?: CompletionItemTag[];
     detail: string;
-    documentation: string | MarkdownString;
+    documentation: string | theia.MarkdownString;
     sortText: string;
     filterText: string;
     preselect: boolean;
@@ -1043,9 +1058,9 @@ export enum MarkerTag {
 @es5ClassCompat
 export class ParameterInformation {
     label: string | [number, number];
-    documentation?: string | MarkdownString;
+    documentation?: string | theia.MarkdownString;
 
-    constructor(label: string | [number, number], documentation?: string | MarkdownString) {
+    constructor(label: string | [number, number], documentation?: string | theia.MarkdownString) {
         this.label = label;
         this.documentation = documentation;
     }
@@ -1054,10 +1069,10 @@ export class ParameterInformation {
 @es5ClassCompat
 export class SignatureInformation {
     label: string;
-    documentation?: string | MarkdownString;
+    documentation?: string | theia.MarkdownString;
     parameters: ParameterInformation[];
 
-    constructor(label: string, documentation?: string | MarkdownString) {
+    constructor(label: string, documentation?: string | theia.MarkdownString) {
         this.label = label;
         this.documentation = documentation;
         this.parameters = [];
@@ -1084,20 +1099,18 @@ export class SignatureHelp {
 @es5ClassCompat
 export class Hover {
 
-    public contents: MarkdownString[] | theia.MarkedString[];
+    public contents: theia.MarkdownString[] | theia.MarkedString[];
     public range?: Range;
 
     constructor(
-        contents: MarkdownString | theia.MarkedString | MarkdownString[] | theia.MarkedString[],
+        contents: theia.MarkdownString | theia.MarkedString | theia.MarkdownString[] | theia.MarkedString[],
         range?: Range
     ) {
         if (!contents) {
             illegalArgument('contents must be defined');
         }
         if (Array.isArray(contents)) {
-            this.contents = <MarkdownString[] | theia.MarkedString[]>contents;
-        } else if (isMarkdownString(contents)) {
-            this.contents = [contents];
+            this.contents = <theia.MarkdownString[] | theia.MarkedString[]>contents;
         } else {
             this.contents = [contents];
         }
@@ -1742,6 +1755,11 @@ export class ProcessExecution {
     }
 }
 
+export enum QuickPickItemKind {
+    Separator = -1,
+    Default = 0,
+}
+
 export enum ShellQuoting {
     Escape = 1,
     Strong = 2,
@@ -2086,9 +2104,7 @@ export class Task {
 }
 
 @es5ClassCompat
-export class Task2 extends Task {
-    detail?: string;
-}
+export class Task2 extends Task { }
 
 @es5ClassCompat
 export class DebugAdapterExecutable {
@@ -2423,7 +2439,6 @@ export class CallHierarchyItem {
     range: Range;
     selectionRange: Range;
     tags?: readonly SymbolTag[];
-    data?: unknown;
 
     constructor(kind: SymbolKind, name: string, detail: string, uri: URI, range: Range, selectionRange: Range) {
         this.kind = kind;
@@ -2434,7 +2449,7 @@ export class CallHierarchyItem {
         this.selectionRange = selectionRange;
     }
 
-    static isCallHierarchyItem(thing: {}): thing is theia.CallHierarchyItem {
+    static isCallHierarchyItem(thing: {}): thing is CallHierarchyItem {
         if (thing instanceof CallHierarchyItem) {
             return true;
         }
@@ -2470,6 +2485,24 @@ export class CallHierarchyOutgoingCall {
     constructor(item: CallHierarchyItem, fromRanges: Range[]) {
         this.fromRanges = fromRanges;
         this.to = item;
+    }
+}
+
+export enum LanguageStatusSeverity {
+    Information = 0,
+    Warning = 1,
+    Error = 2
+}
+
+@es5ClassCompat
+export class LinkedEditingRanges {
+
+    ranges: theia.Range[];
+    wordPattern?: RegExp;
+
+    constructor(ranges: Range[], wordPattern?: RegExp) {
+        this.ranges = ranges;
+        this.wordPattern = wordPattern;
     }
 }
 

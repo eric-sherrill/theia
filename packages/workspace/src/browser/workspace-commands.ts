@@ -14,10 +14,9 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
+import { inject, injectable } from '@theia/core/shared/inversify';
 import URI from '@theia/core/lib/common/uri';
 import { SelectionService } from '@theia/core/lib/common/selection-service';
-import { ApplicationServer } from '@theia/core/lib/common/application-protocol';
 import { Command, CommandContribution, CommandRegistry } from '@theia/core/lib/common/command';
 import { MenuContribution, MenuModelRegistry } from '@theia/core/lib/common/menu';
 import { CommonMenus } from '@theia/core/lib/browser/common-frontend-contribution';
@@ -65,7 +64,7 @@ export namespace WorkspaceCommands {
         id: 'workspace:openFile',
         originalCategory: FILE_CATEGORY,
         category: nls.localizeByDefault(CommonCommands.FILE_CATEGORY),
-        dialogLabel: 'Open File'
+        dialogLabel: nls.localizeByDefault('Open File')
     };
     export const OPEN_FOLDER: Command & { dialogLabel: string } = {
         id: 'workspace:openFolder',
@@ -89,6 +88,7 @@ export namespace WorkspaceCommands {
         category: WORKSPACE_CATEGORY,
         label: 'Close Workspace'
     });
+    /** @deprecated @since 1.24 Use CommonCommands.NEW_FILE instead. */
     export const NEW_FILE = Command.toDefaultLocalizedCommand({
         id: 'file.newFile',
         category: FILE_CATEGORY,
@@ -142,11 +142,8 @@ export namespace WorkspaceCommands {
         category: WORKSPACE_CATEGORY,
         label: 'Open Workspace Configuration File'
     });
-    export const SAVE_AS = Command.toDefaultLocalizedCommand({
-        id: 'file.saveAs',
-        category: CommonCommands.FILE_CATEGORY,
-        label: 'Save As...',
-    });
+    /** @deprecated @since 1.24.0 Use `CommonCommands.SAVE_AS` instead */
+    export const SAVE_AS = CommonCommands.SAVE_AS;
     export const COPY_RELATIVE_FILE_PATH = Command.toDefaultLocalizedCommand({
         id: 'navigator.copyRelativeFilePath',
         label: 'Copy Relative Path'
@@ -157,10 +154,6 @@ export namespace WorkspaceCommands {
 export class FileMenuContribution implements MenuContribution {
 
     registerMenus(registry: MenuModelRegistry): void {
-        registry.registerMenuAction(CommonMenus.FILE_NEW, {
-            commandId: WorkspaceCommands.NEW_FILE.id,
-            order: 'a'
-        });
         registry.registerMenuAction(CommonMenus.FILE_NEW, {
             commandId: WorkspaceCommands.NEW_FOLDER.id,
             order: 'b'
@@ -210,18 +203,10 @@ export class WorkspaceCommandContribution implements CommandContribution {
     @inject(WorkspaceDeleteHandler) protected readonly deleteHandler: WorkspaceDeleteHandler;
     @inject(WorkspaceDuplicateHandler) protected readonly duplicateHandler: WorkspaceDuplicateHandler;
     @inject(WorkspaceCompareHandler) protected readonly compareHandler: WorkspaceCompareHandler;
-    @inject(ApplicationServer) protected readonly applicationServer: ApplicationServer;
     @inject(ClipboardService) protected readonly clipboardService: ClipboardService;
 
     private readonly onDidCreateNewFileEmitter = new Emitter<DidCreateNewResourceEvent>();
     private readonly onDidCreateNewFolderEmitter = new Emitter<DidCreateNewResourceEvent>();
-
-    protected backendOS: Promise<OS.Type>;
-
-    @postConstruct()
-    async init(): Promise<void> {
-        this.backendOS = this.applicationServer.getBackendOS();
-    };
 
     get onDidCreateNewFile(): Event<DidCreateNewResourceEvent> {
         return this.onDidCreateNewFileEmitter.event;
@@ -246,7 +231,8 @@ export class WorkspaceCommandContribution implements CommandContribution {
                 if (parent) {
                     const parentUri = parent.resource;
                     const { fileName, fileExtension } = this.getDefaultFileConfig();
-                    const vacantChildUri = FileSystemUtils.generateUniqueResourceURI(parentUri, parent, fileName, fileExtension);
+                    const targetUri = parentUri.resolve(fileName + fileExtension);
+                    const vacantChildUri = FileSystemUtils.generateUniqueResourceURI(parent, targetUri, false);
 
                     const dialog = new WorkspaceInputDialog({
                         title: nls.localizeByDefault('New File'),
@@ -270,7 +256,8 @@ export class WorkspaceCommandContribution implements CommandContribution {
             execute: uri => this.getDirectory(uri).then(parent => {
                 if (parent) {
                     const parentUri = parent.resource;
-                    const vacantChildUri = FileSystemUtils.generateUniqueResourceURI(parentUri, parent, 'Untitled');
+                    const targetUri = parentUri.resolve('Untitled');
+                    const vacantChildUri = FileSystemUtils.generateUniqueResourceURI(parent, targetUri, true);
                     const dialog = new WorkspaceInputDialog({
                         title: nls.localizeByDefault('New Folder'),
                         parentUri: parentUri,
@@ -399,10 +386,7 @@ export class WorkspaceCommandContribution implements CommandContribution {
     }
 
     protected async validateFileRename(oldName: string, newName: string, parent: FileStat): Promise<string> {
-        if (
-            await this.backendOS === OS.Type.Windows
-            && parent.resource.resolve(newName).isEqual(parent.resource.resolve(oldName), false)
-        ) {
+        if (OS.backend.isWindows && parent.resource.resolve(newName).isEqual(parent.resource.resolve(oldName), false)) {
             return '';
         }
         return this.validateFileName(newName, parent, false);

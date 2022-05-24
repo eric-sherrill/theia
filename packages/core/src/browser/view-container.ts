@@ -46,11 +46,6 @@ export interface ViewContainerTitleOptions {
     closeable?: boolean;
 }
 
-enum SashType {
-    TopSash = 'top-sash',
-    BottomSash = 'bottom-sash'
-}
-
 @injectable()
 export class ViewContainerIdentifier {
     id: string;
@@ -195,6 +190,19 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         const visibleParts = this.getParts().filter(p => !p.isHidden);
         const expandedParts = visibleParts.filter(p => !p.collapsed);
         this.currentPart = expandedParts[0] || visibleParts[0];
+    }
+
+    protected updateSplitterVisibility(): void {
+        const className = 'p-first-visible';
+        let firstFound = false;
+        for (const part of this.getParts()) {
+            if (!part.isHidden && !firstFound) {
+                part.addClass(className);
+                firstFound = true;
+            } else {
+                part.removeClass(className);
+            }
+        }
     }
 
     protected titleOptions: ViewContainerTitleOptions | undefined;
@@ -374,6 +382,7 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         this.refreshMenu(newPart);
         this.updateTitle();
         this.updateCurrentPart();
+        this.updateSplitterVisibility();
         this.update();
         this.fireDidChangeTrackableWidgets();
         toRemoveWidget.pushAll([
@@ -389,6 +398,7 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
                     this.update();
                     this.updateTitle();
                     this.updateCurrentPart();
+                    this.updateSplitterVisibility();
                     this.fireDidChangeTrackableWidgets();
                 }
             }),
@@ -396,9 +406,12 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
             newPart.onDidChangeVisibility(() => {
                 this.updateTitle();
                 this.updateCurrentPart();
+                this.updateSplitterVisibility();
+                this.containerLayout.updateSashes();
             }),
             newPart.onCollapsed(() => {
                 this.containerLayout.updateCollapsed(newPart, this.enableAnimation);
+                this.containerLayout.updateSashes();
                 this.updateCurrentPart();
             }),
             newPart.onContextMenu(event => {
@@ -582,9 +595,6 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         if (this.titleOptions) {
             this.menuRegistry.registerMenuAction([...SIDE_PANEL_TOOLBAR_CONTEXT_MENU, 'navigation'], action);
         }
-
-        ViewContainer.updateSashState(SashType.TopSash, part.node.previousElementSibling, part.collapsed);
-        ViewContainer.updateSashState(SashType.BottomSash, part.node.nextElementSibling, part.collapsed);
     }
 
     protected unregisterPart(part: ViewContainerPart): void {
@@ -890,27 +900,6 @@ export namespace ViewContainer {
         }
         return 'vertical';
     }
-
-    export function updateSashState(sashType: SashType, sashElement: Element | null, activeContainerCollapsed: boolean): void {
-        if (sashElement && sashElement.className.includes('p-SplitPanel-handle')) {
-            // Hide the sash when the active `horizontal` container in the left panel is collapsed
-            sashElement.classList.toggle('sash-hidden', activeContainerCollapsed);
-
-            let adjacentContainer: Element | null;
-            if (sashType === SashType.TopSash) {
-                adjacentContainer = sashElement.previousElementSibling;
-            } else {
-                adjacentContainer = sashElement.nextElementSibling;
-            }
-
-            // Sash should only appear when the following two conditions are met:
-            //    1.  the active `horizontal` container is expanded
-            //    2.  the container that is above/below the active `horizontal` container is also expanded
-            if (!activeContainerCollapsed && adjacentContainer) {
-                sashElement.classList.toggle('sash-hidden', adjacentContainer.className.includes('collapsed'));
-            }
-        }
-    }
 }
 
 /**
@@ -1020,15 +1009,11 @@ export class ViewContainerPart extends BaseWidget {
     set collapsed(collapsed: boolean) {
         // Cannot collapse/expand if the orientation of the container is `horizontal`.
         const orientation = ViewContainer.getOrientation(this.node);
-        if (this._collapsed === collapsed || orientation === 'horizontal' && collapsed) {
+        if (this._collapsed === collapsed || (orientation === 'horizontal' && collapsed)) {
             return;
         }
         this._collapsed = collapsed;
         this.node.classList.toggle('collapsed', collapsed);
-
-        // Update the sashes for the active `horizontal` container when the container is collapsed/expanded
-        ViewContainer.updateSashState(SashType.TopSash, this.node.previousElementSibling, collapsed);
-        ViewContainer.updateSashState(SashType.BottomSash, this.node.nextElementSibling, collapsed);
 
         if (collapsed && this.wrapped.node.contains(document.activeElement)) {
             this.header.focus();
@@ -1449,7 +1434,6 @@ export class ViewContainerLayout extends SplitLayout {
         if (index < 0 || !this.parent || part.isHidden) {
             return;
         }
-
         // Do not store the height of the "stretched item". Otherwise, we mess up the "hint height".
         // Store the height only if there are other expanded items.
         const currentSize = this.orientation === 'horizontal' ? part.node.offsetWidth : part.node.offsetHeight;
@@ -1511,6 +1495,40 @@ export class ViewContainerLayout extends SplitLayout {
             MessageLoop.sendMessage(this.parent, Widget.Msg.FitRequest);
         };
         requestAnimationFrame(updateFunc);
+    }
+
+    updateSashes(): void {
+        const { widgets, handles } = this;
+        if (widgets.length !== handles.length) {
+            console.warn('Unexpected mismatch between number of widgets and number of handles.');
+            return;
+        }
+        const firstUncollapsed = this.getFirstUncollapsedWidgetIndex();
+        const lastUncollapsed = firstUncollapsed === undefined ? undefined : this.getLastUncollapsedWidgetIndex();
+        const allHidden = firstUncollapsed === lastUncollapsed;
+        for (const [index, handle] of this.handles.entries()) {
+            // The or clauses are added for type checking. If they're true, allHidden will also have been true.
+            if (allHidden || firstUncollapsed === undefined || lastUncollapsed === undefined) {
+                handle.classList.add('sash-hidden');
+            } else if (index < lastUncollapsed && index >= firstUncollapsed) {
+                handle.classList.remove('sash-hidden');
+            } else {
+                handle.classList.add('sash-hidden');
+            }
+        }
+    }
+
+    protected getFirstUncollapsedWidgetIndex(): number | undefined {
+        const index = this.widgets.findIndex(widget => !widget.collapsed && !widget.isHidden);
+        return index === -1 ? undefined : index;
+    }
+
+    protected getLastUncollapsedWidgetIndex(): number | undefined {
+        for (let i = this.widgets.length - 1; i >= 0; i--) {
+            if (!this.widgets[i].collapsed && !this.widgets[i].isHidden) {
+                return i;
+            }
+        }
     }
 
     protected override onFitRequest(msg: Message): void {

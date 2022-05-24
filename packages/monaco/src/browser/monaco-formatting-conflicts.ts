@@ -18,8 +18,12 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { PreferenceService, FrontendApplicationContribution, PreferenceLanguageOverrideService } from '@theia/core/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
 import { MonacoQuickInputService } from './monaco-quick-input-service';
+import * as monaco from '@theia/monaco-editor-core';
+import { FormattingConflicts, FormattingMode } from '@theia/monaco-editor-core/esm/vs/editor/contrib/format/browser/format';
+import { DocumentFormattingEditProvider, DocumentRangeFormattingEditProvider } from '@theia/monaco-editor-core/esm/vs/editor/common/languages';
+import { ITextModel } from '@theia/monaco-editor-core/esm/vs/editor/common/model';
 
-type FormattingEditProvider = monaco.languages.DocumentFormattingEditProvider | monaco.languages.DocumentRangeFormattingEditProvider;
+type FormattingEditProvider = DocumentFormattingEditProvider | DocumentRangeFormattingEditProvider;
 
 const PREFERENCE_NAME = 'editor.defaultFormatter';
 
@@ -39,12 +43,13 @@ export class MonacoFormattingConflictsContribution implements FrontendApplicatio
     protected readonly editorManager: EditorManager;
 
     async initialize(): Promise<void> {
-        monaco.format.FormattingConflicts.setFormatterSelector(<T extends FormattingEditProvider>(
-            formatters: T[], document: monaco.editor.ITextModel, mode: monaco.format.FormattingMode) =>
+
+        FormattingConflicts.setFormatterSelector(<T extends FormattingEditProvider>(
+            formatters: T[], document: ITextModel, mode: FormattingMode) =>
             this.selectFormatter(formatters, document, mode));
     }
 
-    private async setDefaultFormatter(language: string, formatter: string): Promise<void> {
+    protected async setDefaultFormatter(language: string, formatter: string): Promise<void> {
         const name = this.preferenceSchema.overridePreferenceName({
             preferenceName: PREFERENCE_NAME,
             overrideIdentifier: language
@@ -63,7 +68,7 @@ export class MonacoFormattingConflictsContribution implements FrontendApplicatio
     }
 
     private async selectFormatter<T extends FormattingEditProvider>(
-        formatters: T[], document: monaco.editor.ITextModel, mode: monaco.format.FormattingMode): Promise<T | undefined> {
+        formatters: T[], document: monaco.editor.ITextModel | ITextModel, mode: FormattingMode): Promise<T | undefined> {
 
         if (formatters.length === 0) {
             return undefined;
@@ -88,7 +93,7 @@ export class MonacoFormattingConflictsContribution implements FrontendApplicatio
             }
         }
 
-        return new Promise<T>(async (resolve, reject) => {
+        return new Promise<T | undefined>(async (resolve, reject) => {
             const items = formatters
                 .filter(formatter => formatter.displayName)
                 .map(formatter => ({
@@ -99,8 +104,12 @@ export class MonacoFormattingConflictsContribution implements FrontendApplicatio
                 .sort((a, b) => a.label!.localeCompare(b.label!));
 
             const selectedFormatter = await this.monacoQuickInputService.showQuickPick(items, { placeholder: 'Select formatter for the current document' });
-            this.setDefaultFormatter(languageId, selectedFormatter.detail ? selectedFormatter.detail : '');
-            resolve(selectedFormatter.value);
+            if (selectedFormatter) {
+                this.setDefaultFormatter(languageId, selectedFormatter.detail ? selectedFormatter.detail : '');
+                resolve(selectedFormatter.value);
+            } else {
+                resolve(undefined);
+            }
         });
     }
 }

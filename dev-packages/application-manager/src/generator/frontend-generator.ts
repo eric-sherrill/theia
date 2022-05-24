@@ -50,11 +50,11 @@ export class FrontendGenerator extends AbstractGenerator {
 <html lang="en">
 
 <head>${this.compileIndexHead(frontendModules)}
-  <script type="text/javascript" src="./bundle.js" charset="utf-8"></script>
 </head>
 
 <body>
-  <div class="theia-preload">${this.compileIndexPreload(frontendModules)}</div>
+    <div class="theia-preload">${this.compileIndexPreload(frontendModules)}</div>
+    <script type="text/javascript" src="./bundle.js" charset="utf-8"></script>
 </body>
 
 </html>`;
@@ -81,13 +81,21 @@ const { FrontendApplicationConfigProvider } = require('@theia/core/lib/browser/f
 
 FrontendApplicationConfigProvider.set(${this.prettyStringify(this.pck.props.frontend.config)});
 
+${this.ifMonaco(() => `
+self.MonacoEnvironment = {
+    getWorkerUrl: function (moduleId, label) {
+        return './editor.worker.js';
+    }
+}
+`)}
+
 const { ThemeService } = require('@theia/core/lib/browser/theming');
 ThemeService.get().loadUserTheme();
 
-const nls = require('@theia/core/lib/browser/nls-loader');
+const preloader = require('@theia/core/lib/browser/preloader');
 
-// nls translations MUST be loaded before requiring any code that uses them
-module.exports = nls.loadTranslations().then(() => {
+// We need to fetch some data from the backend before the frontend starts (nls, os)
+module.exports = preloader.preload().then(() => {
     const { FrontendApplication } = require('@theia/core/lib/browser');
     const { frontendApplicationModule } = require('@theia/core/lib/browser/frontend-application-module');
     const { messagingFrontendModule } = require('@theia/core/lib/${this.pck.isBrowser()

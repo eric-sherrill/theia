@@ -14,32 +14,17 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-// *****************************************************************************
-// Copyright (C) 2021 SAP SE or an SAP affiliate company and others.
-//
-// This program and the accompanying materials are made available under the
-// terms of the Eclipse Public License v. 2.0 which is available at
-// http://www.eclipse.org/legal/epl-2.0.
-//
-// This Source Code may also be made available under the following Secondary
-// Licenses when the conditions for such availability set forth in the Eclipse
-// Public License v. 2.0 are satisfied: GNU General Public License, version 2
-// with the GNU Classpath Exception which is available at
-// https://www.gnu.org/software/classpath/license.html.
-//
-// SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
-// *****************************************************************************
-
 import URI from './uri';
 import * as fuzzy from 'fuzzy';
 import { Event } from './event';
 import { KeySequence } from './keys';
 import { CancellationToken } from './cancellation';
+import { URI as Uri } from 'vscode-uri';
 
 export const quickPickServicePath = '/services/quickPick';
 export const QuickPickService = Symbol('QuickPickService');
 export interface QuickPickService {
-    show<T extends QuickPickItem>(items: Array<T>, options?: QuickPickOptions<T>): Promise<T | undefined>;
+    show<T extends QuickPickItem>(items: Array<T | QuickPickSeparator>, options?: QuickPickOptions<T>): Promise<T | undefined>;
     setItems<T extends QuickPickItem>(items: Array<T>): void;
     hide(): void
     readonly onDidHide: Event<void>;
@@ -61,7 +46,7 @@ export interface QuickPickItemHighlights {
 }
 
 export interface QuickPickItem {
-    type?: 'item' | 'separator';
+    type?: 'item';
     id?: string;
     label: string;
     meta?: string;
@@ -76,6 +61,13 @@ export interface QuickPickItem {
     execute?: () => void;
 }
 
+export interface QuickPickSeparator {
+    type: 'separator';
+    label?: string;
+}
+
+export type QuickPickItemOrSeparator = QuickPickItem | QuickPickSeparator;
+
 export namespace QuickPickItem {
     export function is(item: QuickPickSeparator | QuickPickItem): item is QuickPickItem {
         // if it's not a separator, it's an item
@@ -89,7 +81,7 @@ export interface QuickPickSeparator {
 }
 
 export namespace QuickPickSeparator {
-    export function is(item: QuickPickSeparator | QuickPickItem): item is QuickPickSeparator {
+    export function is(item: QuickPickItemOrSeparator): item is QuickPickSeparator {
         return item.type === 'separator';
     }
 }
@@ -101,17 +93,62 @@ export interface QuickPickValue<V> extends QuickPickItem {
 }
 
 export interface QuickInputButton {
-    iconPath?: URI | { light: URI; dark: URI } | { id: string };
+    iconPath?: URI | { light?: URI | Uri; dark: URI | Uri } | { id: string };
     iconClass?: string;
     tooltip?: string;
+    /**
+     * Whether the button should be visible even when the user is not hovering.
+     */
+    alwaysVisible?: boolean;
+}
+
+export interface NormalizedQuickInputButton extends QuickInputButton {
+    iconPath?: { light?: Uri, dark: Uri };
+}
+
+export namespace QuickInputButton {
+    export function normalize(button: undefined): undefined;
+    export function normalize(button: QuickInputButton): NormalizedQuickInputButton;
+    export function normalize(button?: QuickInputButton): NormalizedQuickInputButton | undefined {
+        if (!button) {
+            return button;
+        }
+        let iconPath: NormalizedQuickInputButton['iconPath'] = undefined;
+        if (button.iconPath instanceof URI) {
+            iconPath = { dark: button.iconPath['codeUri'] };
+        } else if (button.iconPath && 'dark' in button.iconPath) {
+            const dark = Uri.isUri(button.iconPath.dark) ? button.iconPath.dark : button.iconPath.dark['codeUri'];
+            const light = Uri.isUri(button.iconPath.light) ? button.iconPath.light : button.iconPath.light?.['codeUri'];
+            iconPath = { dark, light };
+        }
+        return {
+            ...button,
+            iconPath,
+        };
+    }
 }
 
 export interface QuickInputButtonHandle extends QuickInputButton {
     index: number; // index of where they are in buttons array if QuickInputButton or -1 if QuickInputButtons.Back
 }
 
+export enum QuickInputHideReason {
+    /**
+     * Focus was moved away from the input, but the user may not have explicitly closed it.
+     */
+    Blur = 1,
+    /**
+     * An explicit close gesture, like striking the Escape key
+     */
+    Gesture = 2,
+    /**
+     * Any other reason
+     */
+    Other = 3,
+}
+
 export interface QuickInput {
-    readonly onDidHide: Event<void>;
+    readonly onDidHide: Event<{ reason: QuickInputHideReason }>;
     readonly onDispose: Event<void>;
     title: string | undefined;
     description: string | undefined;
@@ -139,7 +176,7 @@ export interface InputBox extends QuickInput {
     validationMessage: string | undefined;
 }
 
-export interface QuickPick<T extends QuickPickItem> extends QuickInput {
+export interface QuickPick<T extends QuickPickItemOrSeparator> extends QuickInput {
     value: string;
     placeholder: string | undefined;
     items: ReadonlyArray<T | QuickPickSeparator>;
@@ -148,7 +185,8 @@ export interface QuickPick<T extends QuickPickItem> extends QuickInput {
     canSelectMany: boolean;
     matchOnDescription: boolean;
     matchOnDetail: boolean;
-    readonly onDidAccept: Event<void>;
+    keepScrollPosition: boolean;
+    readonly onDidAccept: Event<{ inBackground: boolean } | undefined>;
     readonly onDidChangeValue: Event<string>;
     readonly onDidTriggerButton: Event<QuickInputButton>;
     readonly onDidTriggerItemButton: Event<QuickPickItemButtonEvent<T>>;
@@ -170,6 +208,7 @@ export interface PickOptions<T extends QuickPickItem> {
 }
 
 export interface InputOptions {
+    title?: string;
     value?: string;
     valueSelection?: [number, number];
     prompt?: string;
@@ -179,16 +218,16 @@ export interface InputOptions {
     validateInput?(input: string): Promise<string | null | undefined> | undefined;
 }
 
-export interface QuickPickItemButtonEvent<T extends QuickPickItem> {
+export interface QuickPickItemButtonEvent<T extends QuickPickItemOrSeparator> {
     button: QuickInputButton;
     item: T;
 }
 
-export interface QuickPickItemButtonContext<T extends QuickPickItem> extends QuickPickItemButtonEvent<T> {
+export interface QuickPickItemButtonContext<T extends QuickPickItemOrSeparator> extends QuickPickItemButtonEvent<T> {
     removeItem(): void;
 }
 
-export interface QuickPickOptions<T extends QuickPickItem> {
+export interface QuickPickOptions<T extends QuickPickItemOrSeparator> {
     busy?: boolean;
     enabled?: boolean;
     title?: string;
@@ -207,6 +246,7 @@ export interface QuickPickOptions<T extends QuickPickItem> {
     matchOnDetail?: boolean;
     matchOnLabel?: boolean;
     sortByLabel?: boolean;
+    keepScrollPosition?: boolean;
     autoFocusOnList?: boolean;
     ignoreFocusOut?: boolean;
     valueSelection?: Readonly<[number, number]>;
@@ -239,7 +279,7 @@ export interface QuickInputService {
     input(options?: InputOptions, token?: CancellationToken): Promise<string | undefined>;
     pick<T extends QuickPickItem, O extends PickOptions<T>>(picks: Promise<T[]> | T[], options?: O, token?: CancellationToken):
         Promise<(O extends { canPickMany: true } ? T[] : T) | undefined>;
-    showQuickPick<T extends QuickPickItem>(items: Array<T>, options?: QuickPickOptions<T>): Promise<T>;
+    showQuickPick<T extends QuickPickItem>(items: Array<T | QuickPickSeparator>, options?: QuickPickOptions<T>): Promise<T | undefined>;
     hide(): void;
     /**
      * Provides raw access to the quick pick controller.
@@ -258,19 +298,23 @@ export interface QuickInputService {
  * @param filter the filter to search for.
  * @returns the list of quick pick items that satisfy the filter.
  */
-export function filterItems(items: QuickPickItem[], filter: string): QuickPickItem[] {
+export function filterItems(items: QuickPickItemOrSeparator[], filter: string): QuickPickItemOrSeparator[] {
     filter = filter.trim().toLowerCase();
 
     if (filter.length === 0) {
         for (const item of items) {
-            item.highlights = undefined; // reset highlights from previous filtering.
+            if (item.type !== 'separator') {
+                item.highlights = undefined; // reset highlights from previous filtering.
+            }
         }
         return items;
     }
 
-    const filteredItems: QuickPickItem[] = [];
+    const filteredItems: QuickPickItemOrSeparator[] = [];
     for (const item of items) {
-        if (
+        if (item.type === 'separator') {
+            filteredItems.push(item);
+        } else if (
             fuzzy.test(filter, item.label) ||
             (item.description && fuzzy.test(filter, item.description)) ||
             (item.detail && fuzzy.test(filter, item.detail))

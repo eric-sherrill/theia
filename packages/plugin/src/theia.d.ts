@@ -497,6 +497,17 @@ export module '@theia/plugin' {
         appendPlaceholder(value: string | ((snippet: SnippetString) => any), number?: number): SnippetString;
 
         /**
+         * Builder-function that appends a choice (`${1|a,b,c|}`) to
+         * the {@linkcode SnippetString.value value} of this snippet string.
+         *
+         * @param values The values for choices - the array of strings
+         * @param number The number of this tabstop, defaults to an auto-increment
+         * value starting at 1.
+         * @return This snippet string.
+         */
+        appendChoice(values: string[], number?: number): SnippetString;
+
+        /**
          * Builder-function that appends a variable (`${VAR}`) to
          * the [`value`](#SnippetString.value) of this snippet string.
          *
@@ -517,6 +528,14 @@ export module '@theia/plugin' {
         Mouse = 2,
 
         Command = 3
+    }
+
+    export enum TextDocumentChangeReason {
+        /** The text change is caused by an undo operation. */
+        Undo = 1,
+
+        /** The text change is caused by a redo operation. */
+        Redo = 2,
     }
 
     /**
@@ -724,11 +743,50 @@ export module '@theia/plugin' {
         isTrusted?: boolean;
 
         /**
+         * Indicates that this markdown string can contain {@link ThemeIcon ThemeIcons}, e.g. `$(zap)`.
+         */
+        supportThemeIcons?: boolean;
+
+        /**
+         * Indicates that this markdown string can contain raw html tags. Defaults to `false`.
+         *
+         * When `supportHtml` is false, the markdown renderer will strip out any raw html tags
+         * that appear in the markdown text. This means you can only use markdown syntax for rendering.
+         *
+         * When `supportHtml` is true, the markdown render will also allow a safe subset of html tags
+         * and attributes to be rendered. See https://github.com/microsoft/vscode/blob/6d2920473c6f13759c978dd89104c4270a83422d/src/vs/base/browser/markdownRenderer.ts#L296
+         * for a list of all supported tags and attributes.
+         */
+        supportHtml?: boolean;
+
+        /**
+         * Uri that relative paths are resolved relative to.
+         *
+         * If the `baseUri` ends with `/`, it is considered a directory and relative paths in the markdown are resolved relative to that directory:
+         *
+         * ```ts
+         * const md = new vscode.MarkdownString(`[link](./file.js)`);
+         * md.baseUri = vscode.Uri.file('/path/to/dir/');
+         * // Here 'link' in the rendered markdown resolves to '/path/to/dir/file.js'
+         * ```
+         *
+         * If the `baseUri` is a file, relative paths in the markdown are resolved relative to the parent dir of that file:
+         *
+         * ```ts
+         * const md = new vscode.MarkdownString(`[link](./file.js)`);
+         * md.baseUri = vscode.Uri.file('/path/to/otherFile.js');
+         * // Here 'link' in the rendered markdown resolves to '/path/to/file.js'
+         * ```
+         */
+        baseUri?: Uri;
+
+        /**
          * Creates a new markdown string with the given value.
          *
          * @param value Optional, initial value.
+         * @param supportThemeIcons Optional, Specifies whether {@link ThemeIcon ThemeIcons} are supported within the {@linkcode MarkdownString}.
          */
-        constructor(value?: string);
+        constructor(value?: string, supportThemeIcons?: boolean);
 
         /**
          * Appends and escapes the given string to this markdown string.
@@ -1297,6 +1355,15 @@ export module '@theia/plugin' {
         static parse(value: string): Uri;
 
         /**
+         * Create an URI from its component parts
+         *
+         * @see {@link Uri.toString}
+         * @param components The component parts of an Uri.
+         * @return A new Uri instance.
+         */
+        static from(components: { readonly scheme: string; readonly authority?: string; readonly path?: string; readonly query?: string; readonly fragment?: string }): Uri;
+
+        /**
          * Use the `file` and `parse` factory functions to create new `Uri` objects.
          */
         private constructor(scheme: string, authority: string, path: string, query: string, fragment: string);
@@ -1768,10 +1835,26 @@ export module '@theia/plugin' {
         readonly files: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
     }
 
+    /**
+     * An event describing a transactional {@link TextDocument document} change.
+     */
     export interface TextDocumentChangeEvent {
-        document: TextDocument;
 
-        contentChanges: TextDocumentContentChangeEvent[];
+        /**
+         * The affected document.
+         */
+        readonly document: TextDocument;
+
+        /**
+         * An array of content changes.
+         */
+        readonly contentChanges: readonly TextDocumentContentChangeEvent[];
+
+        /**
+         * The reason why the document was changed.
+         * Is `undefined` if the reason is not known.
+         */
+        readonly reason: TextDocumentChangeReason | undefined;
     }
 
     export interface TextDocumentContentChangeEvent {
@@ -2070,7 +2153,11 @@ export module '@theia/plugin' {
      * Represents an item that can be selected from a list of items.
      */
     export interface QuickPickItem {
-        type?: 'item' | 'separator';
+        /**
+         * Defaults to {@link QuickPickItemKind.Default}. If set to {@link QUickPickItemKind.Separator}, the item will not be displayed as a row but only as a separator,
+         * and all fields other than {@link QuickPickItem.label label} will be ignored.
+         */
+        kind?: QuickPickItemKind;
         /**
          * The item label
          */
@@ -2095,6 +2182,14 @@ export module '@theia/plugin' {
          * Always show this item.
          */
         alwaysShow?: boolean;
+    }
+
+    /**
+     * The type of a {@link QuickPickItem quitk pick item}. If `Separator` is set, all fields other than {@link QuickPickItem.label label} will be ignored.
+     */
+    export enum QuickPickItemKind {
+        Separator = -1,
+        Default = 0,
     }
 
     /**
@@ -2158,6 +2253,11 @@ export module '@theia/plugin' {
          * If the filter text should also be matched against the detail of the items. Defaults to false.
          */
         matchOnDetail: boolean;
+
+        /*
+         * An optional flag to maintain the scroll position of the quick pick when the quick pick items are updated. Defaults to false.
+         */
+        keepScrollPosition?: boolean;
 
         /**
          * Active items. This can be read and updated by the extension.
@@ -2236,6 +2336,11 @@ export module '@theia/plugin' {
      * Options to configure the behavior of the input box UI.
      */
     export interface InputBoxOptions {
+
+        /**
+         * An optional string that represents the title of the input box.
+         */
+        title?: string;
 
         /**
          * The value to prefill in the input box.
@@ -2363,6 +2468,24 @@ export module '@theia/plugin' {
     }
 
     /**
+     * Accessibility information which controls screen reader behavior.
+     */
+    export interface AccessibilityInformation {
+        /**
+         * Label to be read out by a screen reader once the item has focus.
+         */
+        readonly label: string;
+
+        /**
+         * Role of the widget which defines how a screen reader interacts with it.
+         * The role should be set in special cases when for example a tree-like element behaves like a checkbox.
+         * If role is not specified the editor will pick the appropriate role automatically.
+         * More about aria roles can be found here https://w3c.github.io/aria/#widget_roles
+         */
+        readonly role?: string;
+    }
+
+    /**
      * Represents an action that is shown with a message.
      */
     export interface MessageItem {
@@ -2422,6 +2545,14 @@ export module '@theia/plugin' {
     export interface StatusBarItem {
 
         /**
+         * The identifier of this item.
+         *
+         * *Note*: if no identifier was provided by the {@linkcode window.createStatusBarItem}
+         * method, the identifier will match the {@link Extension.id extension identifier}.
+         */
+        readonly id: string;
+
+        /**
          * The alignment of this item.
          */
         readonly alignment: StatusBarAlignment;
@@ -2433,6 +2564,13 @@ export module '@theia/plugin' {
         readonly priority: number;
 
         /**
+         * The name of the entry, like 'Python Language Indicator', 'Git Status' etc.
+         * Try to keep the length of the name short, yet descriptive enough that
+         * users can understand what the status bar item is about.
+         */
+        name: string | undefined;
+
+        /**
          * The text to show for the entry. To set a text with icon use the following pattern in text string:
          * $(fontawesomeClassName)
          */
@@ -2441,7 +2579,7 @@ export module '@theia/plugin' {
         /**
          * The tooltip text when you hover over this entry.
          */
-        tooltip: string | undefined;
+        tooltip: string | MarkdownString | undefined;
 
         /**
          * The foreground color for this entry.
@@ -2449,9 +2587,28 @@ export module '@theia/plugin' {
         color: string | ThemeColor | undefined;
 
         /**
+         * The background color for this entry.
+         *
+         * *Note*: only the following colors are supported:
+         * * `new ThemeColor('statusBarItem.errorBackground')`
+         * * `new ThemeColor('statusBarItem.warningBackground')`
+         *
+         * More background colors may be supported in the future.
+         *
+         * *Note*: when a background color is set, the statusbar may override
+         * the `color` choice to ensure the entry is readable in all themes.
+         */
+        backgroundColor: ThemeColor | undefined;
+
+        /**
          * The identifier of a command to run on click.
          */
         command: string | Command | undefined;
+
+        /**
+         * Accessibility information used when a screen reader interacts with this StatusBar item.
+         */
+        accessibilityInformation: AccessibilityInformation | undefined;
 
         /**
          * Shows the entry in the status bar.
@@ -2532,6 +2689,13 @@ export module '@theia/plugin' {
          * @param value
          */
         appendLine(value: string): void;
+
+        /**
+         * Replaces all output from the channel with the given value.
+         *
+         * @param value A string, falsy values will not be printed.
+         */
+        replace(value: string): void;
 
         /**
          * Removes all output from the channel.
@@ -4178,36 +4342,43 @@ export module '@theia/plugin' {
 
         /**
          * Shows a selection list.
-         * @param items
-         * @param options
-         * @param token
+         *
+         * @param items An array of strings, or a promise that resolves to an array of strings.
+         * @param options Configures the behavior of the selection list.
+         * @param token A token that can be used to signal cancellation.
+         * @return A promise that resolves to the selection or `undefined`.
          */
-        export function showQuickPick(items: string[] | PromiseLike<string[]>, options: QuickPickOptions, token?: CancellationToken): PromiseLike<string | undefined>;
+        export function showQuickPick(readonly items: string[] | PromiseLike<readonly string[]>, options: QuickPickOptions, token?: CancellationToken): PromiseLike<string | undefined>;
 
         /**
-         * Shows a selection list with multiple selection allowed.
+         * Shows a selection list allowing multiple selections.
+         *
+         * @param items An array of strings, or a promise that resolves to an array of strings.
+         * @param options Configures the behavior of the selection list.
+         * @param token A token that can be used to signal cancellation.
+         * @return A promise that resolves to the selected items or `undefined`.
          */
-        export function showQuickPick(
-            items: string[] | PromiseLike<string[]>,
-            options: QuickPickOptions & { canPickMany: true },
-            token?: CancellationToken
-        ): PromiseLike<string[] | undefined>;
+        export function showQuickPick(readonly items: string[] | PromiseLike<readonly string[]>, options: QuickPickOptions & { canPickMany: true }, token?: CancellationToken): PromiseLike<string[] | undefined>;
 
         /**
          * Shows a selection list.
-         * @param items
-         * @param options
-         * @param token
+         *
+         * @param items An array of items, or a promise that resolves to an array of items.
+         * @param options Configures the behavior of the selection list.
+         * @param token A token that can be used to signal cancellation.
+         * @return A promise that resolves to the selected item or `undefined`.
          */
-        export function showQuickPick<T extends QuickPickItem>(items: T[] | PromiseLike<T[]>, options: QuickPickOptions, token?: CancellationToken): PromiseLike<T | undefined>;
+        export function showQuickPick<T extends QuickPickItem>(items: readonly T[] | PromiseLike<readonly T[]>, options: QuickPickOptions, token?: CancellationToken): PromiseLike<T | undefined>;
 
         /**
-         * Shows a selection list with multiple selection allowed.
+         * Shows a selection list allowing multiple selections.
+         *
+         * @param items An array of items, or a promise that resolves to an array of items.
+         * @param options Configures the behavior of the selection list.
+         * @param token A token that can be used to signal cancellation.
+         * @return A promise that resolves to the selected items or `undefined`.
          */
-        export function showQuickPick<T extends QuickPickItem>(items: T[] | PromiseLike<T[]>,
-            options: QuickPickOptions & { canPickMany: true },
-            token?: CancellationToken
-        ): PromiseLike<T[] | undefined>;
+        export function showQuickPick<T extends QuickPickItem>(items: readonly T[] | PromiseLike<readonly T[]>, options: QuickPickOptions & { canPickMany: true }, token?: CancellationToken): PromiseLike<T[] | undefined>;
 
         /**
          * Creates a [QuickPick](#QuickPick) to let the user pick an item from a list
@@ -5198,6 +5369,13 @@ export module '@theia/plugin' {
          * This will show action `extension.deleteFolder` only for items with `contextValue` is `folder`.
          */
         contextValue?: string;
+
+        /**
+         * Accessibility information used when screen reader interacts with this tree item.
+         * Generally, a TreeItem has no need to set the `role` of the accessibilityInformation;
+         * however, there are cases where a TreeItem is not displayed in a tree-like way where setting the `role` may make sense.
+         */
+        accessibilityInformation?: AccessibilityInformation;
 
         /**
          * @param label A human-readable string describing this item
@@ -6198,7 +6376,7 @@ export module '@theia/plugin' {
          * @return true if the operation was successfully started and false otherwise if arguments were used that would result
          * in invalid workspace folder state (e.g. 2 folders with the same URI).
          */
-        export function updateWorkspaceFolders(start: number, deleteCount: number | undefined | null, ...workspaceFoldersToAdd: { uri: Uri, name?: string }[]): boolean;
+        export function updateWorkspaceFolders(start: number, deleteCount: number | undefined | null, ...workspaceFoldersToAdd: { readonly uri: Uri, readonly name?: string }[]): boolean;
 
         /**
          * ~~Register a task provider.~~
@@ -6793,8 +6971,7 @@ export module '@theia/plugin' {
      * thenable.
      *
      */
-    export type ProviderResult<T> = T | undefined | PromiseLike<T | undefined>;
-
+    export type ProviderResult<T> = T | undefined | null | Thenable<T | undefined | null>;
     /**
      * A symbol kind.
      */
@@ -7311,6 +7488,31 @@ export module '@theia/plugin' {
     }
 
     /**
+     * A structured label for a {@link CompletionItem completion item}.
+     */
+    export interface CompletionItemLabel {
+
+        /**
+         * The label of this completion item.
+         *
+         * By default this is also the text that is inserted when this completion is selected.
+         */
+        label: string;
+
+        /**
+         * An optional string which is rendered less prominently directly after {@link CompletionItemLabel.label label},
+         * without any spacing. Should be used for function signatures or type annotations.
+         */
+        detail?: string;
+
+        /**
+         * An optional string which is rendered less prominently after {@link CompletionItemLabel.detail}. Should be used
+         * for fully qualified names or file path.
+         */
+        description?: string;
+    }
+
+    /**
      * A completion item represents a text snippet that is proposed to complete text that is being typed.
      *
      * It is sufficient to create a completion item from just a [label](#CompletionItem.label). In that
@@ -7332,7 +7534,7 @@ export module '@theia/plugin' {
          * this is also the text that is inserted when selecting
          * this completion.
          */
-        label: string;
+        label: string | CompletionItemLabel;
 
         /**
          * The kind of this completion item. Based on the kind
@@ -7451,7 +7653,7 @@ export module '@theia/plugin' {
          * @param label The label of the completion.
          * @param kind The [kind](#CompletionItemKind) of the completion.
          */
-        constructor(label: string, kind?: CompletionItemKind);
+        constructor(label: string | CompletionItemLabel, kind?: CompletionItemKind);
     }
 
     /**
@@ -7781,6 +7983,82 @@ export module '@theia/plugin' {
     }
 
     /**
+     * Represents the severity of a language status item.
+     */
+    export enum LanguageStatusSeverity {
+        Information = 0,
+        Warning = 1,
+        Error = 2
+    }
+
+    /**
+     * A language status item is the preferred way to present language status reports for the active text editors,
+     * such as selected linter or notifying about a configuration problem.
+     */
+    export interface LanguageStatusItem {
+
+        /**
+         * The identifier of this item.
+         */
+        readonly id: string;
+
+        /**
+         * The short name of this item, like 'Java Language Status', etc.
+         */
+        name: string | undefined;
+
+        /**
+         * A {@link DocumentSelector selector} that defines for what editors
+         * this item shows.
+         */
+        selector: DocumentSelector;
+
+        /**
+         * The severity of this item.
+         *
+         * Defaults to {@link LanguageStatusSeverity.Information information}. You can use this property to
+         * signal to users that there is a problem that needs attention, like a missing executable or an
+         * invalid configuration.
+         */
+        severity: LanguageStatusSeverity;
+
+        /**
+         * The text to show for the entry. You can embed icons in the text by leveraging the syntax:
+         *
+         * `My text $(icon-name) contains icons like $(icon-name) this one.`
+         *
+         * Where the icon-name is taken from the ThemeIcon [icon set](https://code.visualstudio.com/api/references/icons-in-labels#icon-listing), e.g.
+         * `light-bulb`, `thumbsup`, `zap` etc.
+         */
+        text: string;
+
+        /**
+         * Optional, human-readable details for this item.
+         */
+        detail?: string;
+
+        /**
+         * Controls whether the item is shown as "busy". Defaults to `false`.
+         */
+        busy: boolean;
+
+        /**
+         * A {@linkcode Command command} for this item.
+         */
+        command: Command | undefined;
+
+        /**
+         * Accessibility information used when a screen reader interacts with this item
+         */
+        accessibilityInformation?: AccessibilityInformation;
+
+        /**
+         * Dispose and free associated resources.
+         */
+        dispose(): void;
+    }
+
+    /**
      * A code action represents a change that can be performed in code, e.g. to fix a problem or
      * to refactor code.
      *
@@ -7844,7 +8122,7 @@ export module '@theia/plugin' {
      *
      * A code action can be any command that is [known](#commands.getCommands) to the system.
      */
-    export interface CodeActionProvider {
+    export interface CodeActionProvider<T extends CodeAction = CodeAction> {
         /**
          * Provide commands for the given document and range.
          *
@@ -7856,12 +8134,7 @@ export module '@theia/plugin' {
          * @return An array of commands, quick fixes, or refactorings or a thenable of such. The lack of a result can be
          * signaled by returning `undefined`, `null`, or an empty array.
          */
-        provideCodeActions(
-            document: TextDocument,
-            range: Range | Selection,
-            context: CodeActionContext,
-            token: CancellationToken | undefined
-        ): ProviderResult<(Command | CodeAction)[]>;
+        provideCodeActions(document: TextDocument, range: Range | Selection, context: CodeActionContext, token: CancellationToken | undefined): ProviderResult<(Command | T)[]>;
 
         /**
          * Given a code action fill in its `edit`-property. Changes to
@@ -7877,7 +8150,7 @@ export module '@theia/plugin' {
          * @return The resolved code action or a thenable that resolves to such. It is OK to return the given
          * `item`. When no result is returned, the given `item` will be used.
          */
-        resolveCodeAction?(codeAction: CodeAction, token: CancellationToken | undefined): ProviderResult<CodeAction>;
+        resolveCodeAction?(codeAction: T, token: CancellationToken | undefined): ProviderResult<T>;
     }
 
     /**
@@ -8046,6 +8319,14 @@ export module '@theia/plugin' {
          * Base kind for an organize imports source action: `source.organizeImports`.
          */
         static readonly SourceOrganizeImports: CodeActionKind;
+
+        /**
+         * Base kind for auto-fix source actions: `source.fixAll`.
+         *
+         * Fix all actions automatically fix errors that have a clear fix that do not require user input.
+         * They should not suppress errors or perform unsafe fixes such as generating new types or classes.
+         */
+        static readonly SourceFixAll: CodeActionKind;
 
         private constructor(value: string);
 
@@ -9090,6 +9371,27 @@ export module '@theia/plugin' {
          * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
          */
         export function registerCallHierarchyProvider(selector: DocumentSelector, provider: CallHierarchyProvider): Disposable;
+
+        /**
+         * Register a linked editing range provider.
+         *
+         * Multiple providers can be registered for a language. In that case providers are sorted
+         * by their {@link languages.match score} and the best-matching provider that has a result is used. Failure
+         * of the selected provider will cause a failure of the whole operation.
+         *
+         * @param selector A selector that defines the documents this provider is applicable to.
+         * @param provider A linked editing range provider.
+         * @return A {@link Disposable} that unregisters this provider when being disposed.
+         */
+        export function registerLinkedEditingRangeProvider(selector: DocumentSelector, provider: LinkedEditingRangeProvider): Disposable;
+
+        /**
+         * Creates a new {@link LanguageStatusItem language status item}.
+         *
+         * @param id The identifier of the item.
+         * @param selector The document selector that defines for what editors the item shows.
+         */
+        export function createLanguageStatusItem(id: string, selector: DocumentSelector): LanguageStatusItem;
     }
 
     /**
@@ -9505,6 +9807,11 @@ export module '@theia/plugin' {
          * The debug session's name from the [debug configuration](#DebugConfiguration).
          */
         readonly name: string;
+
+        /**
+         * The workspace folder of this session or `undefined` for a folderless setup.
+         */
+        readonly workspaceFolder: WorkspaceFolder | undefined;
 
         /**
          * The "resolved" [debug configuration](#DebugConfiguration) of this session.
@@ -10040,14 +10347,14 @@ export module '@theia/plugin' {
          * @param breakpoints The breakpoints to add.
          */
         // eslint-disable-next-line @typescript-eslint/no-shadow
-        export function addBreakpoints(breakpoints: Breakpoint[]): void;
+        export function addBreakpoints(breakpoints: readonly Breakpoint[]): void;
 
         /**
          * Remove breakpoints.
          * @param breakpoints The breakpoints to remove.
          */
         // eslint-disable-next-line @typescript-eslint/no-shadow
-        export function removeBreakpoints(breakpoints: Breakpoint[]): void;
+        export function removeBreakpoints(breakpoints: readonly Breakpoint[]): void;
     }
 
     /**
@@ -10445,6 +10752,13 @@ export module '@theia/plugin' {
         source?: string;
 
         /**
+         * A human-readable string which is rendered less prominently on a separate line in places
+         * where the task's name is displayed. Supports rendering of {@link ThemeIcon theme icons}
+         * via the `$(<name>)`-syntax.
+         */
+        detail?: string;
+
+        /**
          * The task group this tasks belongs to. See TaskGroup
          * for a predefined set of available groups.
          * Defaults to undefined meaning that the task doesn't
@@ -10462,9 +10776,10 @@ export module '@theia/plugin' {
         problemMatchers?: string[];
     }
 
-    export class Task2 extends Task {
-        detail?: string;
-    }
+    /**
+     * Task2 is kept for compatibility reasons.
+     */
+    export class Task2 extends Task { }
 
     export interface TaskProvider<T extends Task = Task> {
         /**
@@ -10791,6 +11106,11 @@ export module '@theia/plugin' {
          * Once disposed, this comment thread will be removed from visible editors and Comment Panel when appropriate.
          */
         dispose(): void;
+
+        /**
+         * Whether the thread supports reply. Defaults to true.
+         */
+        canReply: boolean;
     }
 
     /**
@@ -11177,6 +11497,50 @@ export module '@theia/plugin' {
          * signaled by returning `undefined` or `null`.
          */
         provideCallHierarchyOutgoingCalls(item: CallHierarchyItem, token: CancellationToken): ProviderResult<CallHierarchyOutgoingCall[]>;
+    }
+
+    /**
+     * Represents a list of ranges that can be edited together along with a word pattern to describe valid range contents.
+     */
+    export class LinkedEditingRanges {
+        /**
+         * Create a new linked editing ranges object.
+         *
+         * @param ranges A list of ranges that can be edited together
+         * @param wordPattern An optional word pattern that describes valid contents for the given ranges
+         */
+        constructor(ranges: Range[], wordPattern?: RegExp);
+
+        /**
+         * A list of ranges that can be edited together. The ranges must have
+         * identical length and text content. The ranges cannot overlap.
+         */
+        readonly ranges: Range[];
+
+        /**
+         * An optional word pattern that describes valid contents for the given ranges.
+         * If no pattern is provided, the language configuration's word pattern will be used.
+         */
+        readonly wordPattern?: RegExp;
+    }
+
+    /**
+     * The linked editing range provider interface defines the contract between extensions and
+     * the linked editing feature.
+     */
+    export interface LinkedEditingRangeProvider {
+        /**
+         * For a given position in a document, returns the range of the symbol at the position and all ranges
+         * that have the same content. A change to one of the ranges can be applied to all other ranges if the new content
+         * is valid. An optional word pattern can be returned with the result to describe valid contents.
+         * If no result-specific word pattern is provided, the word pattern from the language configuration is used.
+         *
+         * @param document The document in which the provider was invoked.
+         * @param position The position at which the provider was invoked.
+         * @param token A cancellation token.
+         * @return A list of ranges that can be edited together
+         */
+        provideLinkedEditingRanges(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<LinkedEditingRanges>;
     }
 
     /**

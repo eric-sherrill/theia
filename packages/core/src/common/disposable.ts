@@ -28,12 +28,23 @@ export namespace Disposable {
         return !!arg && typeof arg === 'object' && 'dispose' in arg && typeof arg['dispose'] === 'function';
     }
     export function create(func: () => void): Disposable {
-        return {
-            dispose: func
-        };
+        return { dispose: func };
     }
-    export const NULL = create(() => { });
+    /** Always provides a reference to a new disposable. */
+    export declare const NULL: Disposable;
 }
+
+/**
+ * Ensures that every reference to {@link Disposable.NULL} returns a new object,
+ * as sharing a disposable between multiple {@link DisposableCollection} can have unexpected side effects
+ */
+Object.defineProperty(Disposable, 'NULL', {
+    configurable: false,
+    enumerable: true,
+    get(): Disposable {
+        return { dispose: () => { } };
+    }
+});
 
 export class DisposableCollection implements Disposable {
 
@@ -105,4 +116,19 @@ export class DisposableCollection implements Disposable {
         );
     }
 
+}
+
+export type DisposableGroup = { push(disposable: Disposable): void } | { add(disposable: Disposable): void };
+export namespace DisposableGroup {
+    export function canPush(candidate?: DisposableGroup): candidate is { push(disposable: Disposable): void } {
+        return Boolean(candidate && (candidate as { push(): void }).push);
+    }
+    export function canAdd(candidate?: DisposableGroup): candidate is { add(disposable: Disposable): void } {
+        return Boolean(candidate && (candidate as { add(): void }).add);
+    }
+}
+
+export function disposableTimeout(...args: Parameters<typeof setTimeout>): Disposable {
+    const handle = setTimeout(...args);
+    return { dispose: () => clearTimeout(handle) };
 }

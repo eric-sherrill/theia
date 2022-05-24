@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct, interfaces } from '@theia/core/shared/inversify';
 import {
     PreferenceService, ContextMenuRenderer, PreferenceInspection,
     PreferenceScope, PreferenceProvider, codicon, OpenerService, open
@@ -30,6 +30,7 @@ import { PreferencesSearchbarWidget } from '../preference-searchbar-widget';
 import * as markdownit from '@theia/core/shared/markdown-it';
 import * as DOMPurify from '@theia/core/shared/dompurify';
 import URI from '@theia/core/lib/common/uri';
+import { PreferenceNodeRendererContribution, PreferenceNodeRendererCreator, PreferenceNodeRendererCreatorRegistry } from './preference-node-renderer-creator';
 
 export const PreferenceNodeRendererFactory = Symbol('PreferenceNodeRendererFactory');
 export type PreferenceNodeRendererFactory = (node: Preference.TreeNode) => PreferenceNodeRenderer;
@@ -101,6 +102,10 @@ export abstract class PreferenceNodeRenderer implements Disposable, GeneralPrefe
 
     protected abstract createDomNode(): HTMLElement;
 
+    protected getAdditionalNodeClassnames(): Iterable<string> {
+        return [];
+    }
+
     insertBefore(nextSibling: HTMLElement): void {
         nextSibling.insertAdjacentElement('beforebegin', this.domNode);
         this.attached = true;
@@ -144,6 +149,26 @@ export class PreferenceHeaderRenderer extends PreferenceNodeRenderer {
         label.textContent = name;
         wrapper.appendChild(label);
         return wrapper;
+    }
+}
+
+@injectable()
+export class PreferenceHeaderRendererContribution implements PreferenceNodeRendererCreator, PreferenceNodeRendererContribution {
+    static ID = 'preference-header-renderer';
+    id = PreferenceHeaderRendererContribution.ID;
+
+    registerPreferenceNodeRendererCreator(registry: PreferenceNodeRendererCreatorRegistry): void {
+        registry.registerPreferenceNodeRendererCreator(this);
+    }
+
+    canHandle(node: Preference.TreeNode): number {
+        return !Preference.LeafNode.is(node) ? 1 : 0;
+    }
+
+    createRenderer(node: Preference.TreeNode, container: interfaces.Container): PreferenceNodeRenderer {
+        const grandchild = container.createChild();
+        grandchild.bind(Preference.Node).toConstantValue(node);
+        return grandchild.get(PreferenceHeaderRenderer);
     }
 }
 
@@ -247,9 +272,8 @@ export abstract class PreferenceLeafNodeRenderer<ValueType extends JSONValue, In
         cog.title = nls.localizeByDefault('More Actions...');
         gutter.appendChild(cog);
 
-        const activeType = Array.isArray(this.preferenceNode.preference.data.type) ? this.preferenceNode.preference.data.type[0] : this.preferenceNode.preference.data.type;
         const contentWrapper = document.createElement('div');
-        contentWrapper.classList.add('pref-content-container', activeType ?? 'open-json');
+        contentWrapper.classList.add('pref-content-container', ...this.getAdditionalNodeClassnames());
         wrapper.appendChild(contentWrapper);
 
         const { description, markdownDescription } = this.preferenceNode.preference.data;
@@ -449,12 +473,13 @@ export abstract class PreferenceLeafNodeRenderer<ValueType extends JSONValue, In
         return modifiedScopes;
     }
 
-    protected getValue(): ValueType {
+    // Many preferences allow `null` and even use it as a default regardless of the declared type.
+    protected getValue(): ValueType | null {
         let currentValue = Preference.getValueInScope(this.inspection, this.scopeTracker.currentScope.scope);
         if (currentValue === undefined) {
             currentValue = this.inspection?.defaultValue;
         }
-        return currentValue ?? this.getFallbackValue();
+        return currentValue !== undefined ? currentValue : this.getFallbackValue();
     }
 
     protected setPreferenceWithDebounce = debounce(this.setPreferenceImmediately.bind(this), 500, { leading: false, trailing: true });

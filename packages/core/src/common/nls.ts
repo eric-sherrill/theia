@@ -30,24 +30,24 @@ export namespace nls {
      * Automatically localizes a text if that text also exists in the vscode repository.
      */
     export function localizeByDefault(defaultValue: string, ...args: FormatType[]): string {
-        const key = getDefaultKey(defaultValue);
-        if (key) {
-            return localize(key, defaultValue, ...args);
+        if (localization) {
+            const key = getDefaultKey(defaultValue);
+            if (key) {
+                return localize(key, defaultValue, ...args);
+            } else {
+                console.warn(`Could not find translation key for default value: "${defaultValue}"`);
+            }
         }
         return Localization.format(defaultValue, args);
     }
 
     export function getDefaultKey(defaultValue: string): string {
-        if (localization) {
-            if (!keyProvider) {
-                keyProvider = new LocalizationKeyProvider();
-            }
-            const key = keyProvider.get(defaultValue);
-            if (key) {
-                return key;
-            } else {
-                console.warn(`Could not find translation key for default value: "${defaultValue}"`);
-            }
+        if (!keyProvider) {
+            keyProvider = new LocalizationKeyProvider();
+        }
+        const key = keyProvider.get(defaultValue);
+        if (key) {
+            return key;
         }
         return '';
     }
@@ -71,7 +71,8 @@ class LocalizationKeyProvider {
     private data = this.buildData();
 
     get(defaultValue: string): string | undefined {
-        return this.data.get(defaultValue);
+        const normalized = Localization.normalize(defaultValue);
+        return this.data.get(normalized) || this.data.get(normalized.toUpperCase());
     }
 
     /**
@@ -86,16 +87,36 @@ class LocalizationKeyProvider {
         const keys: NlsKeys = bundles.keys;
         const messages: Record<string, string[]> = bundles.messages;
         const data = new Map<string, string>();
+        const keysAndMessages = this.buildKeyMessageTuples(keys, messages);
+        for (const { key, message } of keysAndMessages) {
+            data.set(message, key);
+        }
+        // Second pass adds each message again in upper case, if the message doesn't already exist in upper case
+        // The second pass is needed to not accidentally override any translations which actually use the upper case message
+        for (const { key, message } of keysAndMessages) {
+            const upperMessage = message.toUpperCase();
+            if (!data.has(upperMessage)) {
+                data.set(upperMessage, key);
+            }
+        }
+        return data;
+    }
+
+    private buildKeyMessageTuples(keys: NlsKeys, messages: Record<string, string[]>): { key: string, message: string }[] {
+        const list: { key: string, message: string }[] = [];
         for (const [fileKey, messageBundle] of Object.entries(messages)) {
             const keyBundle = keys[fileKey];
             for (let i = 0; i < messageBundle.length; i++) {
                 const message = Localization.normalize(messageBundle[i]);
                 const key = keyBundle[i];
                 const localizationKey = this.buildKey(typeof key === 'string' ? key : key.key, fileKey);
-                data.set(message, localizationKey);
+                list.push({
+                    key: localizationKey,
+                    message
+                });
             }
         }
-        return data;
+        return list;
     }
 
     private buildKey(key: string, filepath: string): string {

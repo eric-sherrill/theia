@@ -31,6 +31,8 @@ describe('Undo, Redo and Select All', function () {
     const { ApplicationShell } = require('@theia/core/lib/browser/shell/application-shell');
     const { MonacoEditor } = require('@theia/monaco/lib/browser/monaco-editor');
     const { ScmContribution } = require('@theia/scm/lib/browser/scm-contribution');
+    const { Range } = require('@theia/monaco-editor-core/esm/vs/editor/common/core/range');
+    const { PreferenceService, PreferenceScope } = require('@theia/core/lib/browser');
 
     const container = window.theia.container;
     const editorManager = container.get(EditorManager);
@@ -40,6 +42,8 @@ describe('Undo, Redo and Select All', function () {
     const navigatorContribution = container.get(FileNavigatorContribution);
     const shell = container.get(ApplicationShell);
     const scmContribution = container.get(ScmContribution);
+    /** @type {PreferenceService} */
+    const preferenceService = container.get(PreferenceService)
 
     const rootUri = workspaceService.tryGetRoots()[0].resource;
     const fileUri = rootUri.resolve('webpack.config.js');
@@ -48,7 +52,7 @@ describe('Undo, Redo and Select All', function () {
 
     /**
      * @template T
-     * @param {() => Promise<T> | T} condition
+     * @param {() => Promise<T> | T} condition
      * @returns {Promise<T>}
      */
     function waitForAnimation(condition) {
@@ -57,11 +61,13 @@ describe('Undo, Redo and Select All', function () {
             do {
                 await animationFrame();
             } while (!condition());
-            resolve();
+            resolve(undefined);
         });
     }
-
-    before(() => {
+    let originalValue = undefined;
+    before(async () => {
+        originalValue = preferenceService.inspect('files.autoSave').globalValue;
+        await preferenceService.set('files.autoSave', 'off', PreferenceScope.User);
         shell.leftPanelHandler.collapse();
     });
 
@@ -78,7 +84,8 @@ describe('Undo, Redo and Select All', function () {
         await editorManager.closeAll({ save: false });
     });
 
-    after(() => {
+    after(async () => {
+        await preferenceService.set('files.autoSave', originalValue, PreferenceScope.User);
         shell.leftPanelHandler.collapse();
     });
 
@@ -90,7 +97,7 @@ describe('Undo, Redo and Select All', function () {
         const editor = /** @type {MonacoEditor} */ (MonacoEditor.get(widget));
         editor.getControl().pushUndoStop();
         editor.getControl().executeEdits('test', [{
-            range: new monaco.Range(1, 1, 1, 1),
+            range: new Range(1, 1, 1, 1),
             text: 'A'
         }]);
         editor.getControl().pushUndoStop();

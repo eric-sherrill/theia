@@ -15,10 +15,13 @@
 // *****************************************************************************
 
 import * as theia from '@theia/plugin';
+import type * as monaco from '@theia/monaco-editor-core';
+import { MarkdownString as MarkdownStringDTO } from '@theia/core/lib/common/markdown-rendering';
 import { UriComponents } from './uri-components';
 import { CompletionItemTag } from '../plugin/types-impl';
 import { Event as TheiaEvent } from '@theia/core/lib/common/event';
 import { URI } from '@theia/core/shared/vscode-uri';
+import { SerializedRegExp } from './plugin-api-rpc';
 
 // Should contains internal Plugin API types
 
@@ -69,13 +72,7 @@ export interface Range {
     readonly endColumn: number;
 }
 
-export interface MarkdownString {
-    value: string;
-    isTrusted?: boolean;
-    uris?: {
-        [href: string]: UriComponents;
-    };
-}
+export { MarkdownStringDTO as MarkdownString };
 
 export interface SerializedDocumentFilter {
     $serialized: true;
@@ -101,11 +98,11 @@ export enum CompletionItemInsertTextRule {
 }
 
 export interface Completion {
-    label: string;
+    label: string | theia.CompletionItemLabel;
     label2?: string;
     kind: CompletionItemKind;
     detail?: string;
-    documentation?: string | MarkdownString;
+    documentation?: string | MarkdownStringDTO;
     sortText?: string;
     filterText?: string;
     preselect?: boolean;
@@ -226,12 +223,12 @@ export enum MarkerTag {
 
 export interface ParameterInformation {
     label: string | [number, number];
-    documentation?: string | MarkdownString;
+    documentation?: string | MarkdownStringDTO;
 }
 
 export interface SignatureInformation {
     label: string;
-    documentation?: string | MarkdownString;
+    documentation?: string | MarkdownStringDTO;
     parameters: ParameterInformation[];
 }
 
@@ -249,7 +246,7 @@ export interface SignatureHelpContext {
 }
 
 export interface Hover {
-    contents: MarkdownString[];
+    contents: MarkdownStringDTO[];
     range?: Range;
 }
 
@@ -516,22 +513,6 @@ export interface RenameLocation {
     text: string;
 }
 
-export interface CallHierarchyDefinition {
-    name: string;
-    kind: SymbolKind;
-    detail?: string;
-    uri: UriComponents;
-    range: Range;
-    selectionRange: Range;
-    tags?: readonly SymbolTag[];
-    data: unknown;
-}
-
-export interface CallHierarchyReference {
-    callerDefinition: CallHierarchyDefinition,
-    references: Range[]
-}
-
 export interface CallHierarchyItem {
     _sessionId?: string;
     _itemId?: string;
@@ -543,7 +524,7 @@ export interface CallHierarchyItem {
     range: Range;
     selectionRange: Range;
     tags?: readonly SymbolTag[];
-    data: unknown;
+    data?: unknown;
 }
 
 export interface CallHierarchyIncomingCall {
@@ -554,6 +535,11 @@ export interface CallHierarchyIncomingCall {
 export interface CallHierarchyOutgoingCall {
     to: CallHierarchyItem;
     fromRanges: Range[];
+}
+
+export interface LinkedEditingRanges {
+    ranges: Range[];
+    wordPattern?: SerializedRegExp;
 }
 
 export interface SearchInWorkspaceResult {
@@ -611,7 +597,7 @@ export enum CommentMode {
 
 export interface Comment {
     readonly uniqueIdInThread: number;
-    readonly body: MarkdownString;
+    readonly body: MarkdownStringDTO;
     readonly userName: string;
     readonly userIconPath?: string;
     readonly contextValue?: string;
@@ -653,6 +639,8 @@ export interface CommentThread {
     onDidChangeLabel: TheiaEvent<string | undefined>;
     onDidChangeCollapsibleState: TheiaEvent<CommentThreadCollapsibleState | undefined>;
     isDisposed: boolean;
+    canReply: boolean;
+    onDidChangeCanReply: TheiaEvent<boolean>;
 }
 
 export interface CommentThreadChangedEventMain extends CommentThreadChangedEvent {

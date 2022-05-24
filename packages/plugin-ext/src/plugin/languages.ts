@@ -19,20 +19,18 @@ import {
     PLUGIN_RPC_CONTEXT,
     LanguagesMain,
     SerializedLanguageConfiguration,
-    SerializedRegExp,
-    SerializedOnEnterRule,
-    SerializedIndentationRule,
     Position,
     Selection,
     RawColorInfo,
     WorkspaceEditDto,
-    PluginInfo
+    PluginInfo,
+    Plugin,
 } from '../common/plugin-api-rpc';
 import { RPCProtocol } from '../common/rpc-protocol';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from './documents';
 import { PluginModel } from '../common/plugin-protocol';
-import { Disposable, URI } from './types-impl';
+import { Disposable, URI, LanguageStatusSeverity } from './types-impl';
 import { UriComponents } from '../common/uri-components';
 import {
     CodeActionProviderDocumentation,
@@ -59,9 +57,11 @@ import {
     CodeAction,
     FoldingRange,
     SelectionRange,
-    CallHierarchyDefinition,
-    CallHierarchyReference,
-    ChainedCacheId
+    ChainedCacheId,
+    CallHierarchyItem,
+    CallHierarchyIncomingCall,
+    CallHierarchyOutgoingCall,
+    LinkedEditingRanges,
 } from '../common/plugin-api-rpc-model';
 import { CompletionAdapter } from './languages/completion';
 import { Diagnostics } from './languages/diagnostics';
@@ -92,7 +92,10 @@ import { CallHierarchyAdapter } from './languages/call-hierarchy';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { DocumentSemanticTokensAdapter, DocumentRangeSemanticTokensAdapter } from './languages/semantic-highlighting';
 import { isReadonlyArray } from '../common/arrays';
-import { DisposableCollection } from '@theia/core/lib/common/disposable';
+import { DisposableCollection, disposableTimeout, Disposable as TheiaDisposable } from '@theia/core/lib/common/disposable';
+import { Severity } from '@theia/core/lib/common/severity';
+import { LinkedEditingRangeAdapter } from './languages/linked-editing-range';
+import { serializeEnterRules, serializeIndentation, serializeRegExp } from './languages-utils';
 
 type Adapter = CompletionAdapter |
     SignatureHelpAdapter |
@@ -117,7 +120,8 @@ type Adapter = CompletionAdapter |
     RenameAdapter |
     CallHierarchyAdapter |
     DocumentRangeSemanticTokensAdapter |
-    DocumentSemanticTokensAdapter;
+    DocumentSemanticTokensAdapter |
+    LinkedEditingRangeAdapter;
 
 export class LanguagesExtImpl implements LanguagesExt {
 
@@ -612,18 +616,35 @@ export class LanguagesExtImpl implements LanguagesExt {
 
     $provideRootDefinition(
         handle: number, resource: UriComponents, location: Position, token: theia.CancellationToken
-    ): Promise<CallHierarchyDefinition | CallHierarchyDefinition[] | undefined> {
+    ): Promise<CallHierarchyItem[] | undefined> {
         return this.withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideRootDefinition(URI.revive(resource), location, token), undefined);
     }
 
-    $provideCallers(handle: number, definition: CallHierarchyDefinition, token: theia.CancellationToken): Promise<CallHierarchyReference[] | undefined> {
+    $provideCallers(handle: number, definition: CallHierarchyItem, token: theia.CancellationToken): Promise<CallHierarchyIncomingCall[] | undefined> {
         return this.withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallers(definition, token), undefined);
     }
 
-    $provideCallees(handle: number, definition: CallHierarchyDefinition, token: theia.CancellationToken): Promise<CallHierarchyReference[] | undefined> {
+    $provideCallees(handle: number, definition: CallHierarchyItem, token: theia.CancellationToken): Promise<CallHierarchyOutgoingCall[] | undefined> {
         return this.withAdapter(handle, CallHierarchyAdapter, adapter => adapter.provideCallees(definition, token), undefined);
     }
+
+    $releaseCallHierarchy(handle: number, session?: string): Promise<boolean> {
+        return this.withAdapter(handle, CallHierarchyAdapter, adapter => adapter.releaseSession(session), false);
+    }
     // ### Call Hierarchy Provider end
+
+    // ### Linked Editing Range Provider begin
+    registerLinkedEditingRangeProvider(selector: theia.DocumentSelector, provider: theia.LinkedEditingRangeProvider): theia.Disposable {
+        const handle = this.addNewAdapter(new LinkedEditingRangeAdapter(this.documents, provider));
+        this.proxy.$registerLinkedEditingRangeProvider(handle, this.transformDocumentSelector(selector));
+        return this.createDisposable(handle);
+    }
+
+    $provideLinkedEditingRanges(handle: number, resource: UriComponents, position: Position, token: theia.CancellationToken): Promise<LinkedEditingRanges | undefined> {
+        return this.withAdapter(handle, LinkedEditingRangeAdapter, async adapter => adapter.provideRanges(URI.revive(resource), position, token), undefined);
+    }
+
+    // ### Linked Editing Range Provider end
 
     // #region semantic coloring
 
@@ -663,46 +684,129 @@ export class LanguagesExtImpl implements LanguagesExt {
         return this.withAdapter(handle, DocumentRangeSemanticTokensAdapter, adapter => adapter.provideDocumentRangeSemanticTokens(URI.revive(resource), range, token), null);
     }
 
+    // Copied from https://github.com/microsoft/vscode/blob/7d9b1c37f8e5ae3772782ba3b09d827eb3fdd833/src/vs/workbench/api/common/extHostLanguages.ts
+    protected statusItemHandlePool = 0;
+    protected readonly statusItemIds = new Set<string>();
+    createLanguageStatusItem(extension: Plugin, id: string, selector: theia.DocumentSelector): theia.LanguageStatusItem {
+
+        const handle = this.statusItemHandlePool++;
+        const proxy = this.proxy;
+        const ids = this.statusItemIds;
+
+        // enforce extension unique identifier
+        const fullyQualifiedId = `${extension.model.id}/${id}`;
+        if (ids.has(fullyQualifiedId)) {
+            throw new Error(`LanguageStatusItem with id '${id}' ALREADY exists`);
+        }
+        ids.add(fullyQualifiedId);
+
+        const data: Omit<theia.LanguageStatusItem, 'dispose'> = {
+            selector,
+            id,
+            name: extension.model.displayName ?? extension.model.name,
+            severity: LanguageStatusSeverity.Information,
+            command: undefined,
+            text: '',
+            detail: '',
+            busy: false
+        };
+
+        let soonHandle: TheiaDisposable | undefined;
+        const commandDisposables = new DisposableCollection();
+        const updateAsync = () => {
+            soonHandle?.dispose();
+            soonHandle = disposableTimeout(() => {
+                commandDisposables.dispose();
+                commandDisposables.push({ dispose: () => { } }); // Mark disposable as undisposed.
+                this.proxy.$setLanguageStatus(handle, {
+                    id: fullyQualifiedId,
+                    name: data.name ?? extension.model.displayName ?? extension.model.name,
+                    source: extension.model.displayName ?? extension.model.name,
+                    selector: this.transformDocumentSelector(data.selector),
+                    label: data.text,
+                    detail: data.detail ?? '',
+                    severity: data.severity === LanguageStatusSeverity.Error ? Severity.Error : data.severity === LanguageStatusSeverity.Warning ? Severity.Warning : Severity.Info,
+                    command: data.command && this.commands.converter.toSafeCommand(data.command, commandDisposables),
+                    accessibilityInfo: data.accessibilityInformation,
+                    busy: data.busy
+                });
+            }, 0);
+        };
+
+        const result: theia.LanguageStatusItem = {
+            dispose(): void {
+                commandDisposables.dispose();
+                soonHandle?.dispose();
+                proxy.$removeLanguageStatus(handle);
+                ids.delete(fullyQualifiedId);
+            },
+            get id(): string {
+                return data.id;
+            },
+            get name(): string | undefined {
+                return data.name;
+            },
+            set name(value) {
+                data.name = value;
+                updateAsync();
+            },
+            get selector(): theia.DocumentSelector {
+                return data.selector;
+            },
+            set selector(value) {
+                data.selector = value;
+                updateAsync();
+            },
+            get text(): string {
+                return data.text;
+            },
+            set text(value) {
+                data.text = value;
+                updateAsync();
+            },
+            get detail(): string | undefined {
+                return data.detail;
+            },
+            set detail(value) {
+                data.detail = value;
+                updateAsync();
+            },
+            get severity(): theia.LanguageStatusSeverity {
+                return data.severity;
+            },
+            set severity(value) {
+                data.severity = value;
+                updateAsync();
+            },
+            get accessibilityInformation(): theia.AccessibilityInformation | undefined {
+                return data.accessibilityInformation;
+            },
+            set accessibilityInformation(value) {
+                data.accessibilityInformation = value;
+                updateAsync();
+            },
+            get command(): theia.Command | undefined {
+                return data.command;
+            },
+            set command(value) {
+                data.command = value;
+                updateAsync();
+            },
+            get busy(): boolean {
+                return data.busy;
+            },
+            set busy(value: boolean) {
+                data.busy = value;
+                updateAsync();
+            }
+        };
+        updateAsync();
+        return result;
+    }
     // #endregion
-}
-
-function serializeEnterRules(rules?: theia.OnEnterRule[]): SerializedOnEnterRule[] | undefined {
-    if (typeof rules === 'undefined' || rules === null) {
-        return undefined;
-    }
-
-    return rules.map(r =>
-    ({
-        action: r.action,
-        beforeText: serializeRegExp(r.beforeText),
-        afterText: serializeRegExp(r.afterText)
-    } as SerializedOnEnterRule));
-}
-
-function serializeRegExp(regexp?: RegExp): SerializedRegExp | undefined {
-    if (typeof regexp === 'undefined' || regexp === null) {
-        return undefined;
-    }
-
-    return {
-        pattern: regexp.source,
-        flags: (regexp.global ? 'g' : '') + (regexp.ignoreCase ? 'i' : '') + (regexp.multiline ? 'm' : '')
-    };
-}
-
-function serializeIndentation(indentationRules?: theia.IndentationRule): SerializedIndentationRule | undefined {
-    if (typeof indentationRules === 'undefined' || indentationRules === null) {
-        return undefined;
-    }
-
-    return {
-        increaseIndentPattern: serializeRegExp(indentationRules.increaseIndentPattern),
-        decreaseIndentPattern: serializeRegExp(indentationRules.decreaseIndentPattern),
-        indentNextLinePattern: serializeRegExp(indentationRules.indentNextLinePattern),
-        unIndentedLinePattern: serializeRegExp(indentationRules.unIndentedLinePattern)
-    };
 }
 
 function getPluginLabel(pluginInfo: PluginInfo): string {
     return pluginInfo.displayName || pluginInfo.name;
 }
+
